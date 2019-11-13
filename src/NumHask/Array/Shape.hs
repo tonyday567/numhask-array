@@ -38,6 +38,12 @@ size [x] = x
 size xs = product xs
 {-# inline size #-}
 
+size' :: [Int] -> Int
+size' [] = 1
+size' [x] = x
+size' xs = product xs
+{-# inline size' #-}
+
 -- | convert from n-dim shape index to a flat index
 --
 -- >>> flatten [2,3,4] [1,1,1]
@@ -47,6 +53,16 @@ flatten [] _ = zero
 flatten _ [x'] = x'
 flatten ns xs = sum $ zipWith (*) xs (drop 1 $ scanr (*) one ns)
 {-# inline flatten #-}
+
+-- | convert from n-dim shape index to a flat index
+--
+-- >>> flatten [2,3,4] [1,1,1]
+-- 17
+flatten' :: [Int] -> [Int] -> Int
+flatten' [] _ = 1
+flatten' _ [x'] = x'
+flatten' ns xs = sum $ zipWith (*) xs (drop 1 $ scanr (*) one ns)
+{-# inline flatten' #-}
 
 -- | convert from a flat index to a shape index
 --
@@ -65,6 +81,21 @@ shapen ns x =
     ([], x)
     ns
 {-# inline shapen #-}
+
+shapen' :: [Int] -> Int -> [Int]
+shapen' [] _ = []
+shapen' [_] x' = [x']
+shapen' [_,y] x' = let (i,j) = divMod x' y in [i,j]
+shapen' ns x =
+  fst $
+  foldr
+    (\a (acc, r) ->
+       let (d, m) = divMod r a
+       in (m : acc, d))
+    ([], x)
+    ns
+{-# inline shapen' #-}
+
 
 -- |
 isDiag :: (Eq a) => [a] -> Bool
@@ -147,6 +178,7 @@ type family Dimension (s :: [Nat]) (i :: Nat) :: Nat where
   Dimension (_:s) n = Dimension s (n - 1)
   Dimension _ _     = L.TypeError ('Text "Index overflow")
 
+dimension :: (Eq t, Num t, Subtractive t) => [p] -> t -> p
 dimension (s:_) 0 = s
 dimension (_:s) n = dimension s (n - 1)
 dimension _ _     = throw (NumHaskException "index overflow")
@@ -231,11 +263,11 @@ type family AddIndexes (si::[Nat]) (ds::[Nat]) (so::[Nat]) where
 
 type family AddDim (d::Nat) (ds::[Nat]) :: [Nat] where
   AddDim _ '[] = '[]
-  AddDim d (x:xs) = (If ((<) d x) x (x + 1)) : AddDim d xs
+  AddDim d (x:xs) = If ((<) d x) x (x + 1) : AddDim d xs
 
 type family SubDim (d::Nat) (ds::[Nat]) :: [Nat] where
   SubDim _ '[] = '[]
-  SubDim d (x:xs) = (If ((<=?) d x) (x - 1) x) : SubDim d xs
+  SubDim d (x:xs) = If ((<=?) d x) (x - 1) x : SubDim d xs
 
 type family SubDims (ds::[Nat]) (rs :: [Nat]) :: [Nat] where
   SubDims '[] rs = rs
@@ -285,15 +317,17 @@ type CheckInsert dim i b =
 
 type Insert dim b = Take dim b ++ (Dimension b dim + 1 : Drop (dim + 1) b)
 
+incAt' :: (Additive a, Num a) => Int -> [a] -> [a]
 incAt' dim b = take dim b ++ (dimension b dim + 1 : drop (dim + 1) b)
 
+decAt :: (Subtractive a, Num a) => Int -> [a] -> [a]
 decAt dim b = take dim b ++ (dimension b dim - 1 : drop (dim + 1) b)
 
 
 type family ReorderDims (d :: [Nat]) (dims :: [Nat]) :: [Nat] where
   ReorderDims '[] _ = '[]
   ReorderDims _ '[] = '[]
-  ReorderDims ss (dim:dims) = (Dimension ss dim) : ReorderDims ss dims
+  ReorderDims ss (dim:dims) = Dimension ss dim : ReorderDims ss dims
 
 reorderDims :: [Int] -> [Int] -> [Int]
 reorderDims [] _ = []
@@ -307,11 +341,11 @@ type family CheckReorder (dims :: [Nat]) (d :: [Nat]) (d' :: [Nat]) where
 
 type family DimSeq (n :: Nat) :: [Nat] where
   DimSeq 0 = '[0]
-  DimSeq x = (DimSeq (x - 1)) ++ '[x]
+  DimSeq x = DimSeq (x - 1) ++ '[x]
 
 type family Sort (xs :: [k]) :: [k] where
             Sort '[]       = '[]
-            Sort (x ': xs) = ((Sort (SFilter 'FMin x xs)) ++ '[x]) ++ (Sort (SFilter 'FMax x xs))
+            Sort (x ': xs) = (Sort (SFilter 'FMin x xs) ++ '[x]) ++ Sort (SFilter 'FMax x xs)
 
 data Flag = FMin | FMax
 
@@ -319,9 +353,9 @@ type family Cmp (a :: k) (b :: k) :: Ordering
 
 type family SFilter (f :: Flag) (p :: k) (xs :: [k]) :: [k] where
             SFilter f p '[]       = '[]
-            SFilter FMin p (x ': xs) = If (Cmp x p == LT) (x ': (SFilter FMin p xs)) (SFilter FMin p xs)
-            SFilter FMax p (x ': xs) = If (Cmp x p == GT || Cmp x p == EQ) (x ': (SFilter FMax p xs)) (SFilter FMax p xs)
-            
+            SFilter 'FMin p (x ': xs) = If (Cmp x p == 'LT) (x ': SFilter 'FMin p xs) (SFilter 'FMin p xs)
+            SFilter 'FMax p (x ': xs) = If (Cmp x p == 'GT || Cmp x p == 'EQ) (x ': SFilter 'FMax p xs) (SFilter 'FMax p xs)
+
 type SelectIndex s i = Take 1 (Drop i s)
 
 type Contraction s x y = DropIndex (DropIndex s y) x

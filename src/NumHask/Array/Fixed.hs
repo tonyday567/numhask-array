@@ -27,7 +27,7 @@ import Data.Distributive (Distributive(..))
 import Data.Functor.Rep
 import GHC.Exts (IsList(..))
 import GHC.Show (Show(..))
-import NumHask.Prelude as P hiding (transpose, outer, identity, singleton)
+import NumHask.Prelude as P hiding (transpose, outer, identity)
 import NumHask.Array.Shape
 import qualified NumHask.Array.Dynamic as D
 import qualified Data.Vector as V
@@ -90,11 +90,11 @@ instance forall s.
   ) => Representable (Array s) where
   type Rep (Array s) = [Int]
   tabulate f =
-    Array . V.generate (size s) $ (f . shapen s)
+    Array . V.generate (size' s) $ (f . shapen' s)
     where
       s = shapeVal $ toShape @s
   {-# inline tabulate #-}
-  index (Array v) i = V.unsafeIndex v (flatten s i)
+  index (Array v) i = V.unsafeIndex v (flatten' s i)
     where
       s = shapeVal (toShape @s)
   {-# inline index #-}
@@ -110,10 +110,9 @@ instance
     bool
     (throw (NumHaskException "shape mismatch"))
     (Array $ V.fromList l)
-    (length l == mn)
+    ((length l == 1 && null ds) || (length l == size ds))
     where
-      mn = P.product $ shapeVal (toShape @s)
-
+      ds = shapeVal (toShape @s)
   toList (Array v) = V.toList v
 
 -- operations
@@ -163,7 +162,8 @@ diag :: forall a s.
   => Array s a
   -> Array '[Min s] a
 diag a = tabulate go where
-  go [s'] = index a (replicate (length ds) s')
+  go [] = throw (NumHaskException "Needs a dimension")
+  go (s':_) = index a (replicate (length ds) s')
   ds = shapeVal (toShape @s)
 
 -- |
@@ -464,14 +464,32 @@ contract :: forall a b s ss s' ds.
 contract f xs a = f . diag <$> extracts' xs a
 
 -- | a generalisation of a dot operation, which is a multiplicative expansion of two arrays and sum contraction along the middle two dimensions.
+--
+-- dot sum (*) on two matrices is known as matrix multiplication
+--
 -- >>> let b = [1..6] :: Array '[2,3] Int
 -- >>> dot sum (*) b (transpose b)
 -- [[14, 32],
 --  [32, 77]]
 --
--- dot sum (*) on two matrices is known as matrix multipliocation
 -- dot sum (*) on two vectors is known as the inner product
+--
+-- >>> let v = [1..3] :: Array '[3] Int
+-- >>> :t dot sum (*) v v
+-- dot sum (*) v v :: Array '[] Int
+--
+-- >>> dot sum (*) v v
+-- 14
+--
 -- dot sum (*) m v on a matrix and a vector is matrix-vector multiplication
+-- Note that an `Array '[3] Int` is neither a row vector nor column vector. `dot` is not turning the vector into a matrix and then using matrix multiplication.
+--
+-- >>>  dot sum (*) v b
+-- [9, 12, 15]
+--
+-- >>> dot sum (*) b v
+-- [14, 32]
+--
 dot :: forall a b c d sa sb s' ss se.
   ( HasShape sa
   , HasShape sb
@@ -541,12 +559,14 @@ slice s t = Array (fromList [index t i | i <- sequence s])
 --   [17, 18, 19, 20],
 --   [21, 22, 23, 24]]]
 --
+-- >>> squeeze ([1] :: Array '[1,1] Double)
+-- 1.0
+--
 squeeze ::
      forall s t a. (t ~ Squeeze s)
   => Array s a
   -> Array t a
 squeeze (Array x) = Array x
-
 
 -- * NumHask heirarchy
 instance

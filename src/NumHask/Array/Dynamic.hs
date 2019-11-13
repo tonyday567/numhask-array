@@ -33,7 +33,7 @@ instance (Show a) => Show (DArray a) where
     where
     go n a'@(DArray l' m) =
       case length l' of
-        0 -> "[]"
+        0 -> maybe (throw (NumHaskException "empty scalar")) GHC.Show.show (head m)
         1 -> "[" ++ intercalate ", " (GHC.Show.show <$> V.toList m) ++ "]"
         x ->
           "[" ++
