@@ -9,18 +9,23 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeInType #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# OPTIONS_GHC -Wall #-}
 
--- | numbers with a shape
+-- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape where
 
-import NumHask.Prelude as P hiding (Last)
+import NumHask.Prelude as P hiding (Last, minimum)
 import GHC.TypeLits as L
-import Data.Type.Bool hiding (If, Not)
+import Data.Type.Bool
+import Data.List ((!!))
 
+-- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
 newtype Shape (s :: [Nat]) = Shape { shapeVal :: [Int] } deriving Show
 
 class HasShape s where
@@ -32,37 +37,48 @@ instance HasShape '[] where
 instance (KnownNat n, HasShape s) => HasShape (n:s) where
   toShape = Shape $ fromInteger (natVal (Proxy :: Proxy n)) : shapeVal (toShape :: Shape s)
 
+-- | Number of dimensions
+rank :: [a] -> Int
+rank = length
+{-# inline rank #-}
+
+type family Rank (s :: [a]) :: Nat where
+  Rank '[] = 0
+  Rank (_:s) = Rank s + 1
+
+-- | The shape of a list of element indexes
+ranks :: [[a]] -> [Int]
+ranks = fmap rank
+{-# inline ranks #-}
+
+type family Ranks (s :: [[a]]) :: [Nat] where
+  Ranks '[] = '[]
+  Ranks (x:xs) = Rank x: Ranks xs
+
+-- | Number of elements
 size :: [Int] -> Int
-size [] = zero
+size [] = 1
 size [x] = x
-size xs = product xs
+size xs = P.product xs
 {-# inline size #-}
 
-size' :: [Int] -> Int
-size' [] = 1
-size' [x] = x
-size' xs = product xs
-{-# inline size' #-}
+type family Size (s :: [Nat]) :: Nat where
+  Size '[] = 1
+  Size (n:s) = n L.* Size s
 
 -- | convert from n-dim shape index to a flat index
 --
 -- >>> flatten [2,3,4] [1,1,1]
 -- 17
+--
+-- >>> flatten [] [1,1,1]
+-- 0
+--
 flatten :: [Int] -> [Int] -> Int
-flatten [] _ = zero
+flatten [] _ = 0
 flatten _ [x'] = x'
 flatten ns xs = sum $ zipWith (*) xs (drop 1 $ scanr (*) one ns)
 {-# inline flatten #-}
-
--- | convert from n-dim shape index to a flat index
---
--- >>> flatten [2,3,4] [1,1,1]
--- 17
-flatten' :: [Int] -> [Int] -> Int
-flatten' [] _ = 1
-flatten' _ [x'] = x'
-flatten' ns xs = sum $ zipWith (*) xs (drop 1 $ scanr (*) one ns)
-{-# inline flatten' #-}
 
 -- | convert from a flat index to a shape index
 --
@@ -82,117 +98,43 @@ shapen ns x =
     ns
 {-# inline shapen #-}
 
-shapen' :: [Int] -> Int -> [Int]
-shapen' [] _ = []
-shapen' [_] x' = [x']
-shapen' [_,y] x' = let (i,j) = divMod x' y in [i,j]
-shapen' ns x =
-  fst $
-  foldr
-    (\a (acc, r) ->
-       let (d, m) = divMod r a
-       in (m : acc, d))
-    ([], x)
-    ns
-{-# inline shapen' #-}
-
-
--- |
-isDiag :: (Eq a) => [a] -> Bool
-isDiag [] = True
-isDiag [_] = True
-isDiag [x,y] = x==y
-isDiag (x:y:xs) = x == y && isDiag (y:xs)
-
--- | drop the ith element
--- >>> dropIndex [2, 3, 4] 1
--- [2,4]
-dropIndex :: [a] -> Int -> [a]
-dropIndex s i = take i s ++ drop (i+1) s
-
--- | convert a list of indexes that references the final indexes to one that references indexes at removal
--- >>> debumpDropIndexes [0,1]
--- [0,0]
-debumpDropIndexes :: (Ord a, Subtractive a, Multiplicative a) => [a] -> [a]
-debumpDropIndexes as = reverse (go [] as)
-  where
-    go r [] = r
-    go r (x:xs) = go (x:r) ((\y -> bool (y - one) y (y < x)) <$> xs)
-
--- | drop elements according to a list of placements (where the placements refer to the initial indexes)
--- >>> dropIndexes [2, 3, 4] [1, 0]
--- [4]
-dropIndexes :: [a] -> [Int] -> [a]
-dropIndexes rs xs = foldl' dropIndex rs (debumpDropIndexes xs)
-
--- | insert an element
--- >>> addIndex [2,4] 1 3
--- [2,3,4]
-addIndex :: [a] -> Int -> a -> [a]
-addIndex s i a = take i s ++ (a:drop i s)
-
--- | convert a list of indexes that references the final indexes to one that references indexes at insertion.
--- >>> debumpAddIndexes [1,0]
--- [0,0]
-debumpAddIndexes :: (Ord a, Subtractive a, Multiplicative a) => [a] -> [a]
-debumpAddIndexes as = go [] (reverse as)
-  where
-    go r [] = r
-    go r (x:xs) = go (x:r) ((\y -> bool (y - one) y (y < x)) <$> xs)
-
--- | insert elements according to a list of indexes.  Note that the list of placements references the final indexes
--- >>> addIndexes [4] [(1,3), (0,2)]
--- [2,3,4]
-addIndexes :: ( ) => [a] -> [(Int, a)] -> [a]
-addIndexes as adds = foldl' (\s (i,a) -> addIndex s i a) as (zip (debumpAddIndexes . fmap fst $ adds) (fmap snd adds))
-
--- | Number of Dimensions
-type family Rank (s :: [Nat]) :: Nat where
-  Rank '[] = 0
-  Rank (_:s) = Rank s + 1
-
--- | Number of Elements
-type family Product (s :: [Nat]) :: Nat where
-  Product '[] = 1
-  Product (n:s) = n L.* Product s
-
-type family If (b :: Bool) c d where
-  If 'True  c d = c
-  If 'False c d = d
-
-type family Not (a :: Bool) where
-  Not 'True  = 'False
-  Not 'False = 'True
-
-type family Replicate (a :: k) (dim :: Nat) :: [k] where
-  Replicate a 0 = '[]
-  Replicate a n = a : Replicate a n
-
-type family Min (s :: [Nat]) :: Nat where
-  Min '[] = L.TypeError ('Text "zero dimension")
-  Min '[x] = x
-  Min (x:xs) = If (x <=? Min xs) x (Min xs)
-
-type family Dimension (s :: [Nat]) (i :: Nat) :: Nat where
-  Dimension (s:_) 0 = s
-  Dimension (_:s) n = Dimension s (n - 1)
-  Dimension _ _     = L.TypeError ('Text "Index overflow")
-
-dimension :: (Eq t, Num t, Subtractive t) => [p] -> t -> p
-dimension (s:_) 0 = s
-dimension (_:s) n = dimension s (n - 1)
-dimension _ _     = throw (NumHaskException "index overflow")
-
-type CheckDimension dim s = IsIndex dim (Rank s)
-
-type CheckIndices i j s = IsIndices i j (Rank s) ~ 'True
-
-type IsIndex i n = (0 <=? i) && (i + 1 <=? n)
-type IsIndices i j n = (0 <=? i) && (i + 1 <=? j) && (j + 1 <=? n)
+-- | /checkIndex i n/ checks if /i/ is a valid index of a list of length /n/
+checkIndex :: Int -> Int -> Bool
+checkIndex i n = zero <= i && i + one <= n
 
 type family CheckIndex (i :: Nat) (n :: Nat) :: Bool where
   CheckIndex i n =
     If ((0 <=? i) && (i + 1 <=? n)) 'True (L.TypeError ('Text "index outside range"))
+
+-- | /checkIndexes is n/ check if /is/ are valid indexes of a list of length /n/
+checkIndexes :: [Int] -> Int -> Bool
+checkIndexes is n = all (`checkIndex` n) is
+
+type family CheckIndexes (i :: [Nat]) (n :: Nat) :: Bool where
+  CheckIndexes '[] n = 'True
+  CheckIndexes (i:is) n = CheckIndex i n && CheckIndexes is n
+
+-- | dimension i is the i'th dimension of a Shape
+dimension :: [Int] -> Int -> Int
+dimension (s:_) 0 = s
+dimension (_:s) n = dimension s (n - 1)
+dimension _ _     = throw (NumHaskException "dimension overflow")
+
+type family Dimension (s :: [Nat]) (i :: Nat) :: Nat where
+  Dimension (s:_) 0 = s
+  Dimension (_:s) n = Dimension s (n - 1)
+  Dimension _ _     = L.TypeError ('Text "dimension overflow")
+
+-- | minimum value in a list
+minimum :: [Int] -> Int
+minimum [] = throw (NumHaskException "dimension underflow")
+minimum [x] = x
+minimum (x:xs) = P.min x (minimum xs)
+
+type family Minimum (s :: [Nat]) :: Nat where
+  Minimum '[] = L.TypeError ('Text "zero dimension")
+  Minimum '[x] = x
+  Minimum (x:xs) = If (x <=? Minimum xs) x (Minimum xs)
 
 type family Take (n :: Nat) (a :: [k]) :: [k] where
   Take 0 _ = '[]
@@ -220,128 +162,179 @@ type family Last (a :: [k]) :: k where
   Last '[x] = x
   Last (_:xs) = Last xs
 
-{-
-type family (a :: [k]) == (b :: [k]) :: Bool where
-  '[] == '[] = True
-  (a:as) == (b:bs) = a==b && as == bs
-
--}
-
 type family (a :: [k]) ++ (b :: [k]) :: [k] where
   '[] ++ b = b
   (a:as) ++ b = a : (as ++ b)
 
+-- | drop the i'th dimension from a shape
+--
+-- >>> dropIndex [2, 3, 4] 1
+-- [2,4]
+dropIndex :: [Int] -> Int -> [Int]
+dropIndex s i = take i s ++ drop (i+1) s
+
 type DropIndex s i = Take i s ++ Drop (i+1) s
 
-type AddIndex s d i = Take d s ++ i ++ Drop d s
-
-type AddIndexI s d i = Take d s ++ (i:Drop d s)
-
-type family (a :: k) > (b :: k) :: Bool where
-  (>) a b = a > b
-
-type family (a :: k) < (b :: k) :: Bool where
-  (<) a b = a < b
-
--- let ds = [0,1]
--- let so = [2,3]
--- let si = [4]
--- AddIndexes [4] [0,1] [2,3]
--- AddIndexes (AddIndexI [4] 0 2) [1] [3]
--- AddIndexes (Take 0 [4] ++ (2:Drop 0 [4])) [1] [3]
--- AddIndexes [2,4] [1] [3]
--- AddIndexes (AddIndexI [2,4] 1 3) [] []
--- AddIndexes [2,3,4] [] []
--- [2,3,4]
+-- | /addIndex s i d/ adds a new dimension to shape /s/ at position /i/
 --
-type family AddIndexes (si::[Nat]) (ds::[Nat]) (so::[Nat]) where
-  AddIndexes si '[] _ = si
-  AddIndexes si (d:ds) (o:os) =
-    If ((==) (Rank ds) (Rank os))
-    (AddIndexes (AddIndexI si d o) ds os)
-    '[]
-
-type family AddDim (d::Nat) (ds::[Nat]) :: [Nat] where
-  AddDim _ '[] = '[]
-  AddDim d (x:xs) = If ((<) d x) x (x + 1) : AddDim d xs
-
-type family SubDim (d::Nat) (ds::[Nat]) :: [Nat] where
-  SubDim _ '[] = '[]
-  SubDim d (x:xs) = If ((<=?) d x) (x - 1) x : SubDim d xs
-
-type family SubDims (ds::[Nat]) (rs :: [Nat]) :: [Nat] where
-  SubDims '[] rs = rs
-  SubDims (x:xs) rs = SubDims (SubDim x xs) (x:rs)
-
-type family SubDimsReverse (ds::[Nat]) :: [Nat] where
-  SubDimsReverse xs = (SubDims (Reverse xs) '[])
-
--- let ds = [1,0]
--- let so = [3,2]
--- let si = [4]
--- AddIndexes' [4] [1,0] [3,2]
--- AddIndexes'' [4] (SubDimsReverse [1,0]) [3,2]
--- AddIndexes'' [4] ((SubDims (Reverse [1,0]) [])) [3,2]
--- AddIndexes'' [4] ((SubDims [0,1] [])) [3,2]
--- AddIndexes'' [4] ((SubDims (SubDim 0 [1]) [0])) [3,2]
--- AddIndexes'' [4] ((SubDims [0] [0])) [3,2]
--- AddIndexes'' [4] ((SubDims (SubDim 0 []) [0, 0])) [3,2]
--- AddIndexes'' [4] ((SubDims [] [0, 0])) [3,2]
--- AddIndexes'' [4] [0, 0] [3,2]
--- AddIndexes'' [4] [0, 0] [3,2]
--- AddIndexes'' (AddIndexI [4] 0 3) [0] [2]
--- AddIndexes'' Take 0 [4] ++ (3:Drop 0 [4]) [0] [2]
--- AddIndexes'' [3,4] [0] [2]
--- AddIndexes'' (AddIndexI [3,4] 0 2) [] []
--- AddIndexes'' Take 0 [3,4] ++ (2:Drop 0 [3,4]) [] []
--- AddIndexes'' [2,3,4] [] []
+-- >>> addIndex [2,4] 1 3
 -- [2,3,4]
-type family AddIndexes' (si::[Nat]) (ds::[Nat]) (so::[Nat]) where
-  AddIndexes' si ds os =
-    If ((==) (Rank ds) (Rank os))
-    (AddIndexes'' si (SubDimsReverse ds) os)
-    (L.TypeError ('Text "indices and dimensions need to be the same size"))
+addIndex :: [Int] -> Int -> Int -> [Int]
+addIndex s i d = take i s ++ (d:drop i s)
 
-type family AddIndexes'' (si::[Nat]) (ds::[Nat]) (so::[Nat]) where
-  AddIndexes'' si '[] _ = si
-  AddIndexes'' si (d:ds) (o:os) =
-    AddIndexes'' (AddIndexI si d o) ds os
+type AddIndex s i d = Take i s ++ (d:Drop i s)
+
+type Reverse (a :: [k]) = ReverseGo a '[]
+
+type family ReverseGo (a :: [k]) (b :: [k]) :: [k] where
+  ReverseGo '[] b = b
+  ReverseGo (a:as) b = ReverseGo as (a:b)
+
+-- | convert a list of position that references a final shape to one that references positions relative to an accumulator.  Deletions are from the left and additions are from the right.
+--
+-- deletions
+--
+-- >>> posRelative [0,1]
+-- [0,0]
+--
+-- additions
+--
+-- >>> reverse (posRelative (reverse [1,0]))
+-- [0,0]
+posRelative :: [Int] -> [Int]
+posRelative as = reverse (go [] as)
+  where
+    go r [] = r
+    go r (x:xs) = go (x:r) ((\y -> bool (y - one) y (y < x)) <$> xs)
+
+type family PosRelative (s::[Nat]) where
+  PosRelative s = PosRelativeGo s '[]
+
+type family PosRelativeGo (r::[Nat]) (s::[Nat]) where
+  PosRelativeGo '[] r = Reverse r
+  PosRelativeGo (x:xs) r = PosRelativeGo (DecMap x xs) (x:r)
+
+type family DecMap (x::Nat) (ys::[Nat]) :: [Nat] where
+  DecMap _ '[] = '[]
+  DecMap x (y:ys) = If (y+1 <=? x) y (y - 1) : DecMap x ys
+
+-- | drop dimensions of a shape according to a list of positions (where position refers to the initial shape)
+--
+-- >>> dropIndexes [2, 3, 4] [1, 0]
+-- [4]
+dropIndexes :: [Int] -> [Int] -> [Int]
+dropIndexes s i = foldl' dropIndex s (posRelative i)
+
+type family DropIndexes (s::[Nat]) (i::[Nat]) where
+  DropIndexes s i = DropIndexesGo s (PosRelative i)
+
+type family DropIndexesGo (s::[Nat]) (i::[Nat]) where
+  DropIndexesGo s '[] = s
+  DropIndexesGo s (i:is) = DropIndexesGo (DropIndex s i) is
+
+-- | insert a list of dimensions according to position and dimension lists.  Note that the list of positions references the final shape and not the initial shape.
+--
+-- >>> addIndexes [4] [1,0] [3,2]
+-- [2,3,4]
+addIndexes :: ( ) => [Int] -> [Int] -> [Int] -> [Int]
+addIndexes as xs = addIndexesGo as (reverse (posRelative (reverse xs))) where
+  addIndexesGo as' [] _ = as'
+  addIndexesGo as' (x:xs') (y:ys') = addIndexesGo (addIndex as' x y) xs' ys'
+  addIndexesGo _ _ _ = throw (NumHaskException "mismatched ranks")
+
+type family AddIndexes (as::[Nat]) (xs::[Nat]) (ys::[Nat]) where
+  AddIndexes as xs ys = AddIndexesGo as (Reverse (PosRelative (Reverse xs))) ys
+
+type family AddIndexesGo (as::[Nat]) (xs::[Nat]) (ys::[Nat]) where
+  AddIndexesGo as' '[] _ = as'
+  AddIndexesGo as' (x:xs') (y:ys') = AddIndexesGo (AddIndex as' x y) xs' ys'
+  AddIndexesGo _ _ _ = L.TypeError ('Text "mismatched ranks")
+
+-- | take list of dimensions according to position lists.
+--
+-- >>> takeIndexes [2,3,4] [2,0]
+-- [4,2]
+takeIndexes :: [Int] -> [Int] -> [Int]
+takeIndexes s i = (s !!) <$> i
+
+type family TakeIndexes (s::[Nat]) (i::[Nat]) where
+  TakeIndexes '[] _ = '[]
+  TakeIndexes _ '[] = '[]
+  TakeIndexes s (i:is) =
+    (s !! i) ': TakeIndexes s is
+
+type family (a :: [k]) !! (b :: Nat) :: k where
+  (!!) '[] i = L.TypeError ('Text "Index Underflow")
+  (!!) (x:_) 0 = x
+  (!!) (_:xs) i = (!!) xs (i - 1)
+
+type family Enumerate (n::Nat) where
+  Enumerate n = Reverse (EnumerateGo n)
+
+type family EnumerateGo (n::Nat) where
+  EnumerateGo 0 = '[]
+  EnumerateGo n = (n - 1) : EnumerateGo (n - 1)
+
+-- | turn a list of included positions for a given rank into a list of excluded positions
+--
+-- >>> exclude 3 [1,2]
+-- [0]
+exclude :: Int -> [Int] -> [Int]
+exclude r = dropIndexes [0..(r - 1)]
+
+type family Exclude (r::Nat) (i::[Nat]) where
+  Exclude r i = DropIndexes (EnumerateGo r) i
+
+type Concatenate i s0 s1 = Take i s0 ++ (Dimension s0 i + Dimension s1 i : Drop (i+1) s0)
+
+type CheckConcatenate i s0 s1 s =
+  (CheckIndex i (Rank s0) &&
+  DropIndex s0 i == DropIndex s1 i &&
+  Rank s0 == Rank s1)
+  ~ 'True
+
+type CheckInsert d i s =
+  (CheckIndex d (Rank s) && CheckIndex i (Dimension s d)) ~ 'True
+
+type Insert d s = Take d s ++ (Dimension s d + 1 : Drop (d + 1) s)
+
+-- | /decAt d s/ decrements the index at /d/ of shape /s/ by one.
+decAt :: Int -> [Int] -> [Int]
+decAt d s = take d s ++ (dimension s d - 1 : drop (d + 1) s)
+
+-- /reorder' s i/ reorders the dimensions of shape /s/ according to a list of positions /i/
+--
+-- >>> reorder' [2,3,4] [2,0,1]
+-- [4,2,3]
+reorder' :: [Int] -> [Int] -> [Int]
+reorder' [] _ = []
+reorder' _ [] = []
+reorder' s (d:ds) = dimension s d:reorder' s ds
+
+type family Reorder (s :: [Nat]) (ds :: [Nat]) :: [Nat] where
+  Reorder '[] _ = '[]
+  Reorder _ '[] = '[]
+  Reorder s (d:ds) = Dimension s d : Reorder s ds
+
+type family CheckReorder (ds :: [Nat]) (s :: [Nat]) where
+  CheckReorder ds s =
+    If
+    (Rank ds == Rank s &&
+    CheckIndexes ds (Rank s))
+    'True
+    (L.TypeError ('Text "bad dimensions"))
+    ~ 'True
+
+type family Squeeze (a :: [Nat]) where
+  Squeeze '[] = '[]
+  Squeeze a = Filter '[] a 1
+
+type family Filter (r::[Nat]) (xs::[Nat]) (i::Nat) where
+  Filter r '[] _ = Reverse r
+  Filter r (x:xs) i = Filter (If (x==i) r (x:r)) xs i
 
 
-type CheckConcatenate i a b = (IsIndex i (Rank a)) ~ 'True
-
-type Concatenate i a b = Take i a ++ (Dimension a i + Dimension b i : Drop (i+1) a)
-
-type CheckInsert dim i b =
-  (CheckDimension dim b && IsIndex i (Dimension b dim))  ~ 'True
-
-type Insert dim b = Take dim b ++ (Dimension b dim + 1 : Drop (dim + 1) b)
-
-incAt' :: (Additive a, Num a) => Int -> [a] -> [a]
-incAt' dim b = take dim b ++ (dimension b dim + 1 : drop (dim + 1) b)
-
-decAt :: (Subtractive a, Num a) => Int -> [a] -> [a]
-decAt dim b = take dim b ++ (dimension b dim - 1 : drop (dim + 1) b)
-
-
-type family ReorderDims (d :: [Nat]) (dims :: [Nat]) :: [Nat] where
-  ReorderDims '[] _ = '[]
-  ReorderDims _ '[] = '[]
-  ReorderDims ss (dim:dims) = Dimension ss dim : ReorderDims ss dims
-
-reorderDims :: [Int] -> [Int] -> [Int]
-reorderDims [] _ = []
-reorderDims _ [] = []
-reorderDims ss (dim:dims) = dimension ss dim:reorderDims ss dims
-
-type family CheckReorder (dims :: [Nat]) (d :: [Nat]) (d' :: [Nat]) where
-  CheckReorder dims d d' =
-    If (ReorderDims d dims == d') 'True
-    (L.TypeError ('Text "bad dimensions")) ~ 'True
-
-type family DimSeq (n :: Nat) :: [Nat] where
-  DimSeq 0 = '[0]
-  DimSeq x = DimSeq (x - 1) ++ '[x]
+-- unused but useful type-level functions
 
 type family Sort (xs :: [k]) :: [k] where
             Sort '[]       = '[]
@@ -356,14 +349,6 @@ type family SFilter (f :: Flag) (p :: k) (xs :: [k]) :: [k] where
             SFilter 'FMin p (x ': xs) = If (Cmp x p == 'LT) (x ': SFilter 'FMin p xs) (SFilter 'FMin p xs)
             SFilter 'FMax p (x ': xs) = If (Cmp x p == 'GT || Cmp x p == 'EQ) (x ': SFilter 'FMax p xs) (SFilter 'FMax p xs)
 
-type SelectIndex s i = Take 1 (Drop i s)
-
-type Contraction s x y = DropIndex (DropIndex s y) x
-
-type family IsElement (s::[Nat]) (e::Nat) where
-  IsElement '[] _ = 'False
-  IsElement (s:xs) e = (s == e) || IsElement xs e
-
 type family Zip lst lst' where Zip lst lst' = ZipWith '(,) lst lst' -- Implemented as TF because #11375
 
 type family ZipWith f lst lst' where
@@ -377,46 +362,26 @@ type family Fst a where
 type family Snd a where
   Snd '(_,a) = a
 
-type family DropIndexesZ (s::[(Nat,Nat)]) (i::[Nat]) where
-  DropIndexesZ '[] _ = '[]
-  DropIndexesZ (x ': xs) i =
-    If (IsElement i (Snd x)) (DropIndexesZ xs i) (Fst x : DropIndexesZ xs i)
-
-type family DropIndexes (s::[Nat]) (i::[Nat]) where
-  DropIndexes s i = DropIndexesZ (Zip s (Enumerate (Rank s))) i
-
-type family EnumerateRev (n::Nat) where
-  EnumerateRev 0 = '[]
-  EnumerateRev n = (n - 1) : EnumerateRev (n - 1)
-
-type family Enumerate (n::Nat) where
-  Enumerate n = Reverse (EnumerateRev n)
-
-type family Rev (a :: [k]) (b :: [k]) :: [k] where
-  Rev '[] b = b
-  Rev (a:as) b = Rev as (a:b)
-
-type Reverse (a :: [k]) = Rev a '[]
-
 type family FMap f lst where
   FMap f '[] = '[]
   FMap f (l ': ls) = f l ': FMap f ls
 
-type family TakeIndexes (s::[Nat]) (i::[Nat]) where
-  TakeIndexes '[] _ = '[]
-  TakeIndexes _ '[] = '[]
-  TakeIndexes s (i:is) =
-    (s !! i) ': TakeIndexes s is
+-- | Reflect a list of Nats
+class KnownNats (ns :: [Nat]) where
+  natVals  :: Proxy ns -> [Int]
 
-type family (a :: [k]) !! (b :: Nat) :: k where
-  -- (!!) '[] i = P.undefined -- L.TypeError "beebaaa"
-  (!!) (x:_) 0 = x
-  (!!) (_:xs) i = (!!) xs (i - 1)
+instance KnownNats '[] where
+  natVals  _ = []
 
-type family Filter (r::[Nat]) (xs::[Nat]) (i::Nat) where
-  Filter r '[] _ = Reverse r
-  Filter r (x:xs) i = Filter (If (x==i) r (x:r)) xs i
+instance (KnownNat n, KnownNats ns) => KnownNats (n : ns) where
+  natVals  _ = fromInteger (natVal (Proxy @n)) : natVals (Proxy @ns)
 
-type family Squeeze (a :: [Nat]) where
-  Squeeze '[] = '[]
-  Squeeze a = Filter '[] a 1
+-- | Reflect a list of list of Nats
+class KnownNatss (ns :: [[Nat]]) where
+  natValss :: Proxy ns -> [[Int]]
+
+instance KnownNatss '[] where
+  natValss  _ = []
+
+instance (KnownNats n, KnownNatss ns) => KnownNatss (n : ns) where
+  natValss _ = natVals (Proxy @n) : natValss (Proxy @ns)

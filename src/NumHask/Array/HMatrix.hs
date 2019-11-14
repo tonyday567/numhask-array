@@ -16,6 +16,7 @@
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
 module NumHask.Array.HMatrix where
 

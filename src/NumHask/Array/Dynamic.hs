@@ -18,9 +18,8 @@
 
 module NumHask.Array.Dynamic where
 
-import Control.Category (id)
 import GHC.Show (Show(..))
-import NumHask.Prelude as P
+import NumHask.Prelude as P hiding (product)
 import NumHask.Array.Shape
 import qualified Data.Vector as V
 
@@ -48,7 +47,7 @@ instance (Show a) => Show (DArray a) where
 flatten1 :: ( ) => DArray a -> [DArray a]
 flatten1 a = (\i -> select 0 i a) <$> [0..(x0 - 1)]
   where
-    x0 = maybe 0 id (head (shape a))
+    x0 = fromMaybe 0 (head (shape a))
 
 index :: ( ) => DArray a -> [Int] -> a
 index (DArray s v) i = V.unsafeIndex v (flatten s i)
@@ -64,7 +63,7 @@ select d i da@(DArray s _) = tabulate news go
     news = take d s ++ drop (d+1) s
 
 fromFlatList :: [Int] -> [a] -> DArray a
-fromFlatList ds l = DArray ds $ V.fromList $ take (product ds) l
+fromFlatList ds l = DArray ds $ V.fromList $ take (size ds) l
 
 toFlatList :: DArray a -> [a]
 toFlatList (DArray _ v) = V.toList v
@@ -77,8 +76,32 @@ mmult :: forall a.
   -> DArray a
 mmult (DArray s1 x) (DArray s2 y) = tabulate s3 go
   where
-    go [i,j] = V.foldl' (+) zero $ V.zipWith (*) (V.slice (fromIntegral i * n) n x) (V.generate m (\x' -> y V.! (fromIntegral j + x' * n)))
-    [m,k] = s1
-    [k',n] = s2
+    go [] = throw (NumHaskException "2 dimensions need")
+    go [_] = throw (NumHaskException "2 dimensions need")
+    go (i:j:_) = V.foldl' (+) zero $ V.zipWith (*) (V.slice (fromIntegral i * n) n x) (V.generate m (\x' -> y V.! (fromIntegral j + x' * n)))
+    (m,_) = case s1 of
+      [] -> throw (NumHaskException "2 dimensions need")
+      [_] -> throw (NumHaskException "2 dimensions need")
+      (m':k':_) -> (m',k')
+    (_,n) = case s1 of
+      [] -> throw (NumHaskException "2 dimensions need")
+      [_] -> throw (NumHaskException "2 dimensions need")
+      (k':n':_) -> (k',n')
     s3 = take 1 s1 ++ drop 1 s2
+
+-- | FIXME: unwrapping scalars is probably a performance bottleneck
+--
+-- >>> let s = fromFlatList [] [3]
+-- >>> fromScalar s
+-- 3
+fromScalar :: DArray a -> a
+fromScalar a = index a ([] :: [Int])
+
+dot' :: forall a.
+  ( Ring a
+  )
+  => DArray a
+  -> DArray a
+  -> a
+dot' (DArray _ x) (DArray _ y) = sum $ V.zipWith (*) x y
 
