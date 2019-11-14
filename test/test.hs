@@ -48,6 +48,8 @@ main = do
   doctest ["src/NumHask/Array/Fixed.hs"]
   putStrLn ("NumHask.Array.Shape DocTest turned on" :: Text)
   doctest ["src/NumHask/Array/Shape.hs"]
+  putStrLn ("NumHask.Array.Dynamic DocTest turned on" :: Text)
+  doctest ["src/NumHask/Array/Dynamic.hs"]
   {-
   bVInt <- assertProps "Vector Int 6" (Prelude.fromInteger 100)
     (genAIntegral :: H.Gen (Vector 6 Int)) integralProps'

@@ -16,8 +16,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
-
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- | Arrays with a fixed shape.
 module NumHask.Array.Fixed where
@@ -170,6 +169,18 @@ shape _ = shapeVal $ toShape @s
 toDArray :: (HasShape s) => Array s a -> D.DArray a
 toDArray a = D.fromFlatList (shape a) (P.toList a)
 
+-- | use a dynamic array in a fixed context
+--
+-- >>> with (D.fromFlatList [2,3,4] [1..24]) (selects (Proxy :: Proxy '[0,1]) [1,1] :: Array '[2,3,4] Int -> Array '[4] Int)
+-- [17, 18, 19, 20]
+with ::
+  forall a r s.
+  (HasShape s) =>
+  D.DArray a ->
+  (Array s a -> r) ->
+  r
+with (D.DArray _ v) f = f (Array v)
+
 -- * operations
 
 -- | reshape an array (with the same number of elements)
@@ -218,7 +229,7 @@ ident = tabulate (bool zero one . isDiag)
   where
     isDiag [] = True
     isDiag [_] = True
-    isDiag [x,y] = x == y
+    isDiag [x, y] = x == y
     isDiag (x : y : xs) = x == y && isDiag (y : xs)
 
 -- |
@@ -482,7 +493,7 @@ insert _ _ a b = tabulate go
 -- append (Proxy :: Proxy 0) a
 --   :: Array '[3, 4] Int -> Array '[3, 3, 4] Int
 append ::
-  forall a d s s' .
+  forall a d s s'.
   ( DropIndex s d ~ s',
     CheckInsert d (Dimension s d - 1) s,
     KnownNat (Dimension s d - 1),
@@ -646,9 +657,10 @@ slice ::
   Proxy pss ->
   Array s a ->
   Array s' a
-slice pss a = tabulate go where
-  go s = index a (zipWith (!!) pss' s)
-  pss' = natValss pss
+slice pss a = tabulate go
+  where
+    go s = index a (zipWith (!!) pss' s)
+    pss' = natValss pss
 
 -- | remove singleton dimensions
 --
@@ -716,7 +728,6 @@ fromScalar a = index a ([] :: [Int])
 -- toScalar 2 :: Num a => Array '[] a
 toScalar :: (HasShape ('[] :: [Nat])) => a -> Array ('[] :: [Nat]) a
 toScalar a = fromList [a]
-
 
 -- * vector specializations
 
@@ -812,6 +823,7 @@ safeCol _j (Array a) = Array $ V.generate m (\x -> V.unsafeIndex a (j + x * n))
 mmult ::
   forall m n k a.
   ( KnownNat k,
+    KnownNat m,
     KnownNat n,
     HasShape [m, n],
     Ring a
@@ -827,4 +839,3 @@ mmult (Array x) (Array y) = tabulate go
     n = fromIntegral $ natVal @n Proxy
     k = fromIntegral $ natVal @k Proxy
 {-# INLINE mmult #-}
-
