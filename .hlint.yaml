@@ -51,6 +51,7 @@
 # - ignore: {name: Use let}
 # - ignore: {name: Use const, within: SpecialModule} # Only within certain modules
 - ignore: {name: Use -}
+- ignore: {name: Eta reduce}
 
 # Define some custom infix operators
 # - fixity: infixr 3 ~^#^~

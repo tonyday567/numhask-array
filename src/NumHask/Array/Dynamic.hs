@@ -13,7 +13,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 -- | Arrays with a dynamic shape
 module NumHask.Array.Dynamic where
@@ -81,6 +81,7 @@ fromFlatList :: [Int] -> [a] -> DArray a
 fromFlatList ds l = DArray ds $ V.fromList $ take (size ds) l
 
 -- | convert to a flat list.
+--
 -- >>> toFlatList a == [1..24]
 -- True
 toFlatList :: DArray a -> [a]
@@ -126,7 +127,7 @@ reshape s a = tabulate s (index a . shapen (shape a) . flatten s)
 -- >>> index (transpose a) [1,0,0] == index a [0,0,1]
 -- True
 transpose :: DArray a -> DArray a
-transpose a = tabulate (shape a) (index a . reverse)
+transpose a = tabulate (reverse $ shape a) (index a . reverse)
 
 -- |
 --
@@ -145,11 +146,11 @@ ident ds = tabulate ds (bool 0 1 . isDiag)
 -- | extract the diagonal
 --
 -- >>> diag (ident [3,2])
--- [[1, 1]]
+-- [1, 1]
 diag ::
   DArray a ->
   DArray a
-diag a = tabulate [1, NumHask.Array.Shape.minimum (shape a)] go
+diag a = tabulate [NumHask.Array.Shape.minimum (shape a)] go
   where
     go [] = throw (NumHaskException "Rank Underflow")
     go (s' : _) = index a (replicate (rank (shape a)) s')
@@ -244,7 +245,7 @@ joins ds a = tabulate (addIndexes si ds so) go
 -- | maps along specified dimensions
 --
 -- >>> shape $ maps (transpose) [1] a
--- [4, 3, 2]
+-- [4,3,2]
 maps ::
   (DArray a -> DArray b) ->
   [Int] ->
@@ -255,7 +256,7 @@ maps f ds a = joins ds (fmap f (extracts ds a))
 -- | concatenate along a dimension
 --
 -- >>> shape $ concatenate 1 a a
--- [2, 6, 4]
+-- [2,6,4]
 concatenate ::
   Int ->
   DArray a ->
@@ -275,10 +276,11 @@ concatenate d a0 a1 = tabulate (concatenate' d (shape a0) (shape a1)) go
             )
         )
         ((s !! d) >= (ds0 !! d))
+    ds0 = shape a0
 
 -- | /insert d i/ insert along the dimension /d/ at position /i/
 --
--- >>> insert 2 0 a ([100..105])
+-- >>> insert 2 0 a (fromFlatList [2,3] [100..105])
 -- [[[100, 1, 2, 3, 4],
 --   [101, 5, 6, 7, 8],
 --   [102, 9, 10, 11, 12]],
@@ -286,12 +288,12 @@ concatenate d a0 a1 = tabulate (concatenate' d (shape a0) (shape a1)) go
 --   [104, 17, 18, 19, 20],
 --   [105, 21, 22, 23, 24]]]
 insert ::
-  [Int] ->
-  [Int] ->
+  Int ->
+  Int ->
   DArray a ->
   DArray a ->
   DArray a
-insert d i a b = tabulate go
+insert d i a b = tabulate (incAt d (shape a)) go
   where
     go s
       | s !! d == i = index b (dropIndex s d)
@@ -300,25 +302,37 @@ insert d i a b = tabulate go
 
 -- | insert along a dimension at the end
 --
--- >>>  :t append 0 a a
---
+-- >>> append 2 a (fromFlatList [2,3] [100..105])
+-- [[[1, 2, 3, 4, 100],
+--   [5, 6, 7, 8, 101],
+--   [9, 10, 11, 12, 102]],
+--  [[13, 14, 15, 16, 103],
+--   [17, 18, 19, 20, 104],
+--   [21, 22, 23, 24, 105]]]
 append ::
-  [Int] ->
+  Int ->
   DArray a ->
   DArray a ->
   DArray a
-append d = insert d (dimension s d - 1)
+append d a b = insert d (dimension (shape a) d) a b
 
 -- | change the order of dimensions
 --
 -- >>> let r = reorder [2,0,1] a
 -- >>> r
---
+-- [[[1, 5, 9],
+--   [13, 17, 21]],
+--  [[2, 6, 10],
+--   [14, 18, 22]],
+--  [[3, 7, 11],
+--   [15, 19, 23]],
+--  [[4, 8, 12],
+--   [16, 20, 24]]]
 reorder ::
   [Int] ->
   DArray a ->
   DArray a
-reorder ds a = tabulate (reorder' s ds) go
+reorder ds a = tabulate (reorder' (shape a) ds) go
   where
     go s = index a (addIndexes [] ds s)
 
@@ -388,7 +402,9 @@ dot ::
   DArray a ->
   DArray b ->
   DArray d
-dot f g a b = contract f ([rank sa - 1, rank sa]) (expand g a b)
+dot f g a b = contract f [rank sa - 1, rank sa] (expand g a b)
+  where
+    sa = shape a
 
 -- | select elements along every dimension
 --
@@ -403,25 +419,19 @@ slice ::
   [[Int]] ->
   DArray a ->
   DArray a
-slice pss a = tabulate go
+slice pss a = tabulate (ranks pss) go
   where
-    go s = index a (zipWith (!!) pss' s)
-    pss' = natValss pss
+    go s = index a (zipWith (!!) pss s)
 
 -- | remove singleton dimensions
 --
 -- >>> let a' = fromFlatList [2,1,3,4,1] [1..24] :: DArray Int
--- >>> squeeze a
--- [[[1, 2, 3, 4],
---   [5, 6, 7, 8],
---   [9, 10, 11, 12]],
---  [[13, 14, 15, 16],
---   [17, 18, 19, 20],
---   [21, 22, 23, 24]]]
+-- >>> shape $ squeeze a'
+-- [2,3,4]
 squeeze ::
   DArray a ->
   DArray a
-squeeze (DArray s x) = DArray (squeeze s) x
+squeeze (DArray s x) = DArray (squeeze' s) x
 
 -- * scalar specializations
 
@@ -440,7 +450,7 @@ fromScalar a = index a ([] :: [Int])
 -- | convert a number to a scalar
 --
 -- >>> :t toScalar 2
--- toScalar 2 :: DArray a
+-- toScalar 2 :: Num a => DArray a
 toScalar :: a -> DArray a
 toScalar a = fromFlatList [] [a]
 
@@ -449,8 +459,8 @@ toScalar a = fromFlatList [] [a]
 --
 -- >>> row 1 m
 -- [4, 5, 6, 7]
-row :: forall m n a. (KnownNat m, KnownNat n, HasShape '[m, n]) => Int -> DArray a -> DArray a
-row i (DArray s a) = DArray $ V.slice (i * n) n a
+row :: Int -> DArray a -> DArray a
+row i (DArray s a) = DArray [n] $ V.slice (i * n) n a
   where
     [_,n] = s
 
@@ -458,8 +468,8 @@ row i (DArray s a) = DArray $ V.slice (i * n) n a
 --
 -- >>> col 1 m
 -- [1, 5, 9]
-col :: forall m n a. (KnownNat m, KnownNat n, HasShape '[m, n]) => Int -> DArray a -> DArray a
-col i (DArray s a) = DArray $ V.generate m (\x -> V.unsafeIndex a (i + x * n))
+col :: Int -> DArray a -> DArray a
+col i (DArray s a) = DArray [m] $ V.generate m (\x -> V.unsafeIndex a (i + x * n))
   where
     [m,n] = s
 
@@ -467,8 +477,8 @@ col i (DArray s a) = DArray $ V.generate m (\x -> V.unsafeIndex a (i + x * n))
 --
 -- This is dot sum (*) specialised to matrices
 --
--- >>> let a = [1, 2, 3, 4] :: DArray '[2, 2] Int
--- >>> let b = [5, 6, 7, 8] :: DArray '[2, 2] Int
+-- >>> let a = fromFlatList [2,2] [1, 2, 3, 4] :: DArray Int
+-- >>> let b = fromFlatList [2,2] [5, 6, 7, 8] :: DArray Int
 -- >>> a
 -- [[1, 2],
 --  [3, 4]]
@@ -481,6 +491,7 @@ col i (DArray s a) = DArray $ V.generate m (\x -> V.unsafeIndex a (i + x * n))
 -- [[19, 22],
 --  [43, 50]]
 mmult ::
+  (Ring a) =>
   DArray a ->
   DArray a ->
   DArray a
@@ -489,7 +500,7 @@ mmult (DArray sx x) (DArray sy y) = tabulate [m,n] go
     go [] = throw (NumHaskException "Needs two dimensions")
     go [_] = throw (NumHaskException "Needs two dimensions")
     go (i : j : _) = sum $ V.zipWith (*) (V.slice (fromIntegral i * k) k x) (V.generate k (\x' -> y V.! (fromIntegral j + x' * n)))
-    [m,_] = sx
+    [m,k] = sx
     [_,n] = sy
 {-# INLINE mmult #-}
 

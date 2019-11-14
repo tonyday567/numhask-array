@@ -302,6 +302,10 @@ type CheckInsert d i s =
 
 type Insert d s = Take d s ++ (Dimension s d + 1 : Drop (d + 1) s)
 
+-- | /incAt d s/ increments the index at /d/ of shape /s/ by one.
+incAt :: Int -> [Int] -> [Int]
+incAt d s = take d s ++ (dimension s d + 1 : drop (d + 1) s)
+
 -- | /decAt d s/ decrements the index at /d/ of shape /s/ by one.
 decAt :: Int -> [Int] -> [Int]
 decAt d s = take d s ++ (dimension s d - 1 : drop (d + 1) s)
@@ -329,6 +333,9 @@ type family CheckReorder (ds :: [Nat]) (s :: [Nat]) where
       'True
       (L.TypeError ('Text "bad dimensions"))
       ~ 'True
+
+squeeze' :: (Eq a, Num a) => [a] -> [a]
+squeeze' = filter (/=1)
 
 type family Squeeze (a :: [Nat]) where
   Squeeze '[] = '[]
