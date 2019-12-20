@@ -136,6 +136,16 @@ instance
   (*.) s = fmap (s *)
   {-# INLINE (*.) #-}
 
+instance (HasShape s, JoinSemiLattice a) => JoinSemiLattice (Array s a) where
+  (\/) = liftR2 (\/)
+
+instance (HasShape s, MeetSemiLattice a) => MeetSemiLattice (Array s a) where
+  (/\) = liftR2 (/\)
+
+instance (HasShape s, Subtractive a, Epsilon a) => Epsilon (Array s a) where
+  epsilon = singleton epsilon
+  nearZero (Array a) = all nearZero a
+
 -- | from flat list
 instance
   ( HasShape s
