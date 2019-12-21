@@ -30,9 +30,7 @@ source-repository head
   type:
     git
   location:
-    https://github.com/tonyday567/numhask
-  subdir:
-    numhask-array
+    https://github.com/tonyday567/numhask-array
 library
   hs-source-dirs:
     src
@@ -58,6 +56,7 @@ library
     , vector >=0.10 && <0.13
     , hmatrix
   exposed-modules:
+    NumHask.Array
     NumHask.Array.HMatrix
     NumHask.Array.Fixed
     NumHask.Array.Dynamic

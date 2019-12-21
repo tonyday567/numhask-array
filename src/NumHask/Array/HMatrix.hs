@@ -17,7 +17,11 @@
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
-module NumHask.Array.HMatrix where
+module NumHask.Array.HMatrix
+  ( Array(..),
+    index,
+    mmult,
+  ) where
 
 import GHC.Exts (IsList (..))
 import GHC.Show (Show (..))
@@ -27,23 +31,20 @@ import qualified Numeric.LinearAlgebra as H
 import qualified Numeric.LinearAlgebra.Devel as H
 import qualified Prelude
 
-newtype HArray s a = HArray {unArray :: H.Matrix a}
+newtype Array s a = Array {unArray :: H.Matrix a}
   deriving (Show, NFData, Generic)
 
-shape :: forall a s. (HasShape s) => HArray s a -> [Int]
-shape _ = shapeVal $ toShape @s
-{-# INLINE shape #-}
-
+-- | explicit rather than via Representable
 index ::
   forall s a.
   ( HasShape s,
     H.Element a,
     H.Container H.Vector a
   ) =>
-  HArray s a ->
+  Array s a ->
   [Int] ->
   a
-index (HArray v) i = H.flatten v `H.atIndex` flatten s i
+index (Array v) i = H.flatten v `H.atIndex` flatten s i
   where
     s = shapeVal (toShape @s)
 
@@ -53,12 +54,12 @@ instance
     H.Container H.Vector a,
     Num a
   ) =>
-  Additive (HArray s a)
+  Additive (Array s a)
   where
 
-  (+) (HArray x1) (HArray x2) = HArray $ H.add x1 x2
+  (+) (Array x1) (Array x2) = Array $ H.add x1 x2
 
-  zero = HArray $ H.konst zero (n, m)
+  zero = Array $ H.konst zero (n, m)
     where
       s = shapeVal (toShape @s)
       [n, m] = s
@@ -70,17 +71,17 @@ instance
     Num (H.Vector a),
     Num a
   ) =>
-  Multiplicative (HArray s a)
+  Multiplicative (Array s a)
   where
 
-  (*) (HArray x1) (HArray x2) = HArray $ H.liftMatrix2 (Prelude.*) x1 x2
+  (*) (Array x1) (Array x2) = Array $ H.liftMatrix2 (Prelude.*) x1 x2
 
-  one = HArray $ H.konst one (n, m)
+  one = Array $ H.konst one (n, m)
     where
       s = shapeVal (toShape @s)
       [n, m] = s
 
-type instance Actor (HArray s a) = a
+type instance Actor (Array s a) = a
 
 instance
   ( HasShape s,
@@ -91,9 +92,9 @@ instance
     Num (H.Vector a),
     Num a
   ) =>
-  Hilbert (HArray s a)
+  Hilbert (Array s a)
   where
-  (<.>) (HArray a) (HArray b) = H.sumElements $ H.liftMatrix2 (Prelude.*) a b
+  (<.>) (Array a) (Array b) = H.sumElements $ H.liftMatrix2 (Prelude.*) a b
   {-# INLINE (<.>) #-}
 
 instance
@@ -102,13 +103,13 @@ instance
     H.Container H.Vector a,
     Num a
   ) =>
-  MultiplicativeAction (HArray s a)
+  MultiplicativeAction (Array s a)
   where
 
-  (.*) (HArray r) s = HArray $ H.cmap (* s) r
+  (.*) (Array r) s = Array $ H.cmap (* s) r
   {-# INLINE (.*) #-}
 
-  (*.) s (HArray r) = HArray $ H.cmap (s *) r
+  (*.) s (Array r) = Array $ H.cmap (s *) r
   {-# INLINE (*.) #-}
 
 -- | from flat list
@@ -117,19 +118,20 @@ instance
     Additive a,
     H.Element a
   ) =>
-  IsList (HArray s a)
+  IsList (Array s a)
   where
 
-  type Item (HArray s a) = a
+  type Item (Array s a) = a
 
-  fromList l = HArray $ H.reshape n $ H.fromList $ take mn $ l ++ repeat zero
+  fromList l = Array $ H.reshape n $ H.fromList $ take mn $ l ++ repeat zero
     where
       mn = P.product $ shapeVal (toShape @s)
       s = shapeVal (toShape @s)
       n = Prelude.last s
 
-  toList (HArray v) = H.toList $ H.flatten v
+  toList (Array v) = H.toList $ H.flatten v
 
+-- | fast
 mmult ::
   forall m n k a.
   ( KnownNat k,
@@ -139,9 +141,9 @@ mmult ::
     Ring a,
     H.Numeric a
   ) =>
-  HArray [m, k] a ->
-  HArray [k, n] a ->
-  HArray [m, n] a
-mmult (HArray x) (HArray y) = HArray $ x H.<> y
+  Array [m, k] a ->
+  Array [k, n] a ->
+  Array [m, n] a
+mmult (Array x) (Array y) = Array $ x H.<> y
 
-type instance Actor (HArray s a) = a
+type instance Actor (Array s a) = a

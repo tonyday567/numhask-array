@@ -19,7 +19,62 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- | Arrays with a fixed shape.
-module NumHask.Array.Fixed where
+module NumHask.Array.Fixed
+  ( -- * Fixed-sixed arrays
+    --
+    -- $array
+    Array (..),
+    with,
+    shape,
+    toDynamic,
+
+    -- * Operators
+    --
+    -- $operators
+    reshape,
+    transpose,
+    diag,
+    selects,
+    selectsExcept,
+    folds,
+    extracts,
+    joins,
+    maps,
+    concatenate,
+    insert,
+    append,
+    reorder,
+    expand,
+    contract,
+    dot,
+    slice,
+    squeeze,
+    ident,
+    singleton,
+
+    -- * Scalar
+    --
+    -- $scalar
+    Scalar,
+    fromScalar,
+    toScalar,
+
+    -- * Vector
+    --
+    -- $scalar
+    Vector,
+
+    -- * Matrix
+    --
+    -- $matrix
+    Matrix,
+    col,
+    row,
+    safeCol,
+    safeRow,
+    mmult,
+    )
+where
 
 import Data.Distributive (Distributive (..))
 import Data.Functor.Rep
@@ -56,7 +111,7 @@ import NumHask.Prelude as P hiding (identity, outer, transpose)
 newtype Array s a = Array {unArray :: V.Vector a} deriving (Eq, Ord, NFData, Functor, Foldable, Generic, Traversable)
 
 instance (HasShape s, Show a) => Show (Array s a) where
-  show a = GHC.Show.show (toDArray a)
+  show a = GHC.Show.show (toDynamic a)
 
 instance
   ( HasShape s
@@ -143,7 +198,9 @@ instance (HasShape s, MeetSemiLattice a) => MeetSemiLattice (Array s a) where
   (/\) = liftR2 (/\)
 
 instance (HasShape s, Subtractive a, Epsilon a) => Epsilon (Array s a) where
+
   epsilon = singleton epsilon
+
   nearZero (Array a) = all nearZero a
 
 -- | from flat list
@@ -176,8 +233,8 @@ shape _ = shapeVal $ toShape @s
 {-# INLINE shape #-}
 
 -- | convert to a dynamic array with shape at the value level.
-toDArray :: (HasShape s) => Array s a -> D.DArray a
-toDArray a = D.fromFlatList (shape a) (P.toList a)
+toDynamic :: (HasShape s) => Array s a -> D.Array a
+toDynamic a = D.fromFlatList (shape a) (P.toList a)
 
 -- | use a dynamic array in a fixed context
 --
@@ -186,10 +243,10 @@ toDArray a = D.fromFlatList (shape a) (P.toList a)
 with ::
   forall a r s.
   (HasShape s) =>
-  D.DArray a ->
+  D.Array a ->
   (Array s a -> r) ->
   r
-with (D.DArray _ v) f = f (Array v)
+with (D.Array _ v) f = f (Array v)
 
 -- * operations
 
@@ -717,11 +774,12 @@ squeeze ::
   Array t a
 squeeze (Array x) = Array x
 
--- * scalar specializations
+-- $scalar
+-- Scalar specialisations
 
 -- | <https://en.wikipedia.org/wiki/Scalarr_(mathematics) Wiki Scalar>
 --
--- An /Array '[] a/ despite being a Scalar is nevertheless a one-element vector under the hood.
+-- An /Array '[] a/ despite being a Scalar is never-the-less a one-element vector under the hood. Unification of representation is unexplored.
 type Scalar a = Array ('[] :: [Nat]) a
 
 -- | unwrapping scalars is probably a performance bottleneck
@@ -739,12 +797,14 @@ fromScalar a = index a ([] :: [Int])
 toScalar :: (HasShape ('[] :: [Nat])) => a -> Array ('[] :: [Nat]) a
 toScalar a = fromList [a]
 
--- * vector specializations
+-- $vector
+-- Vector specialisations
 
 -- | <https://en.wikipedia.org/wiki/Vector_(mathematics_and_physics) Wiki Vector>
 type Vector s a = Array '[s] a
 
--- * matrix specializations
+-- $matrix
+-- Matrix specialisations
 
 -- | <https://en.wikipedia.org/wiki/Matrix_(mathematics) Wiki Matrix>
 type Matrix m n a = Array '[m, n] a
