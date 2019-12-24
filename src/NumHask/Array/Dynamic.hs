@@ -60,11 +60,11 @@ module NumHask.Array.Dynamic
   )
 where
 
+import Data.List ((!!))
 import qualified Data.Vector as V
 import GHC.Show (Show (..))
 import NumHask.Array.Shape
 import NumHask.Prelude as P hiding (product, transpose)
-import Data.List ((!!))
 
 -- $setup
 -- >>> :set -XDataKinds
@@ -490,7 +490,6 @@ mult = dot sum (*)
 --   [10, 11]],
 --  [[14, 15],
 --   [22, 23]]]
---
 slice ::
   [[Int]] ->
   Array a ->
@@ -531,7 +530,7 @@ toScalar a = fromFlatList [] [a]
 row :: Int -> Array a -> Array a
 row i (Array s a) = Array [n] $ V.slice (i * n) n a
   where
-    (_:n:_) = s
+    (_ : n : _) = s
 
 -- | extract specialised to a matrix
 --
@@ -540,7 +539,7 @@ row i (Array s a) = Array [n] $ V.slice (i * n) n a
 col :: Int -> Array a -> Array a
 col i (Array s a) = Array [m] $ V.generate m (\x -> V.unsafeIndex a (i + x * n))
   where
-    (m:n:_) = s
+    (m : n : _) = s
 
 -- | matrix multiplication
 --
@@ -564,13 +563,11 @@ mmult ::
   Array a ->
   Array a ->
   Array a
-mmult (Array sx x) (Array sy y) = tabulate [m,n] go
+mmult (Array sx x) (Array sy y) = tabulate [m, n] go
   where
     go [] = throw (NumHaskException "Needs two dimensions")
     go [_] = throw (NumHaskException "Needs two dimensions")
     go (i : j : _) = sum $ V.zipWith (*) (V.slice (fromIntegral i * k) k x) (V.generate k (\x' -> y V.! (fromIntegral j + x' * n)))
-    (m:k:_) = sx
-    (_:n:_) = sy
+    (m : k : _) = sx
+    (_ : n : _) = sy
 {-# INLINE mmult #-}
-
-

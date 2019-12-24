@@ -1,5 +1,5 @@
 name: numhask-array
-version: 0.4.0.0
+version: 0.5.0.0
 synopsis:
   n-dimensional arrays
 description:
@@ -26,6 +26,9 @@ build-type:
   Simple
 cabal-version:
   1.18
+extra-source-files:
+    readme.md
+    stack.yaml
 source-repository head
   type:
     git
@@ -76,9 +79,8 @@ test-suite test
     UnicodeSyntax
   build-depends:
       base >=4.11 && <5
-    , adjunctions >=4.0 && <5
     , doctest >=0.13 && <0.17
-    , numhask-array >=0.3 && <0.5
+    , numhask-array >=0.3 && <0.6
     , numhask-prelude >=0.3 && <0.4
     , numhask-hedgehog >=0.3 && <0.4
     , hedgehog >=0.5 && <1.1

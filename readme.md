@@ -4,7 +4,7 @@ numhask-array
 [![Build Status](https://travis-ci.org/tonyday567/numhask.svg)](https://travis-ci.org/tonyday567/numhask) 
 [![Hackage](https://img.shields.io/hackage/v/numhask-array.svg)](https://hackage.haskell.org/package/numhask-array) 
 
-Arrays are numbers that can be indexed into with `[Int]`. 
+Arrays are higher-kinded numbers that can be indexed into with an Int list. Higher-kinded numbers are things with a non-primitive type that we wish to use the usual numerical operators on (+,-,*,/,abs).
 
 This is an experimental library that:
 - allows shape to be specified at both the type and value level.
@@ -26,19 +26,11 @@ The operators that result from using the Representable type - separation of size
 
 Matrix multiplication in APL is `+.x` and in numhask-array is `dot sum (*)`.  There is a slight increase in abstraction by explicitly exposing the fold in the algorithm, but the expressions are both very neat and abstracted away from the specialisation of multiplying matrices.
 
-See https://blog.plover.com/prog/apl-matrix-product.html
+References
+---
 
+https://blog.plover.com/prog/apl-matrix-product.html
 
+https://en.wikipedia.org/wiki/Tensor_contraction
 
-
-
-
-
-
-
-
-
-
-- [ ] (quick) write up of outer -> contract -> dot -> APL
-    https://en.wikipedia.org/wiki/Tensor_contraction
-    https://en.wikipedia.org/wiki/Tensor_(intrinsic_definition)#Definition:_Tensor_Product_of_Vector_Spaces
+https://en.wikipedia.org/wiki/Tensor_(intrinsic_definition)#Definition:_Tensor_Product_of_Vector_Spaces

@@ -73,6 +73,7 @@ module NumHask.Array.Fixed
   )
 where
 
+import Control.Category (id)
 import Data.Distributive (Distributive (..))
 import Data.Functor.Rep
 import Data.List ((!!))
@@ -83,7 +84,6 @@ import GHC.TypeLits
 import qualified NumHask.Array.Dynamic as D
 import NumHask.Array.Shape
 import NumHask.Prelude as P hiding (identity, outer, transpose)
-import Control.Category (id)
 
 -- $setup
 -- >>> :set -XDataKinds

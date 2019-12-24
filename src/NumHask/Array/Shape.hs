@@ -18,8 +18,8 @@
 
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
-  ( Shape(..),
-    HasShape(..),
+  ( Shape (..),
+    HasShape (..),
     type (++),
     type (!!),
     Take,
@@ -71,9 +71,10 @@ module NumHask.Array.Shape
     Squeeze,
     incAt,
     decAt,
-    KnownNats(..),
-    KnownNatss(..)
-  ) where
+    KnownNats (..),
+    KnownNatss (..),
+  )
+where
 
 import Data.List ((!!))
 import Data.Type.Bool
@@ -342,7 +343,7 @@ exclude r = dropIndexes [0 .. (r - 1)]
 type family Exclude (r :: Nat) (i :: [Nat]) where
   Exclude r i = DropIndexes (EnumerateGo r) i
 
--- | concatenate 
+-- | concatenate
 --
 -- >>> concatenate' 1 [2,3,4] [2,3,4]
 -- [2,6,4]
@@ -397,7 +398,7 @@ type family CheckReorder (ds :: [Nat]) (s :: [Nat]) where
 
 -- | remove 1's from a list
 squeeze' :: (Eq a, Num a) => [a] -> [a]
-squeeze' = filter (/=1)
+squeeze' = filter (/= 1)
 
 type family Squeeze (a :: [Nat]) where
   Squeeze '[] = '[]

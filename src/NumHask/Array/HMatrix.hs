@@ -19,7 +19,7 @@
 -- | Arrays with a fixed shape, with a HMatrix representation.
 module NumHask.Array.HMatrix
   ( -- $setup
-    Array(..),
+    Array (..),
 
     -- * Representation
     --
@@ -71,20 +71,21 @@ module NumHask.Array.HMatrix
     safeCol,
     safeRow,
     mmult,
-  ) where
+  )
+where
 
+import Data.List ((!!))
+import qualified Data.Vector as V
 import GHC.Exts (IsList (..))
 import GHC.Show (Show (..))
-import qualified Data.Vector as V
-import NumHask.Array.Shape
+import GHC.TypeLits
 import qualified NumHask.Array.Dynamic as D
 import qualified NumHask.Array.Fixed as F
+import NumHask.Array.Shape
 import NumHask.Prelude as P hiding (transpose)
 import qualified Numeric.LinearAlgebra as H
 import qualified Numeric.LinearAlgebra.Devel as H
 import qualified Prelude
-import GHC.TypeLits
-import Data.List ((!!))
 
 -- $setup
 -- >>> :set -XDataKinds
@@ -241,7 +242,9 @@ tabulate ::
   forall s a.
   ( HasShape s,
     H.Element a
-  ) => ([Int] -> a) -> Array s a
+  ) =>
+  ([Int] -> a) ->
+  Array s a
 tabulate f =
   fromList (V.toList $ V.generate (size s) (f . shapen s))
   where
@@ -305,7 +308,8 @@ diag ::
   forall a s.
   ( HasShape s,
     HasShape '[Minimum s],
-    H.Element a, H.Container H.Vector a
+    H.Element a,
+    H.Container H.Vector a
   ) =>
   Array s a ->
   Array '[Minimum s] a
@@ -338,7 +342,8 @@ selects ::
     HasShape ds,
     HasShape s',
     s' ~ DropIndexes s ds,
-    H.Element a, H.Container H.Vector a
+    H.Element a,
+    H.Container H.Vector a
   ) =>
   Proxy ds ->
   [Int] ->
@@ -363,7 +368,8 @@ selectsExcept ::
     HasShape ds,
     HasShape s',
     s' ~ TakeIndexes s ds,
-    H.Element a, H.Container H.Vector a
+    H.Element a,
+    H.Container H.Vector a
   ) =>
   Proxy ds ->
   [Int] ->
@@ -386,8 +392,10 @@ folds ::
     HasShape so,
     si ~ DropIndexes st ds,
     so ~ TakeIndexes st ds,
-    H.Element a, H.Container H.Vector a,
-    H.Element b, H.Container H.Vector b
+    H.Element a,
+    H.Container H.Vector a,
+    H.Element b,
+    H.Container H.Vector b
   ) =>
   (Array si a -> b) ->
   Proxy ds ->
@@ -409,7 +417,8 @@ concatenate ::
     HasShape s1,
     HasShape s,
     KnownNat d,
-    H.Element a, H.Container H.Vector a
+    H.Element a,
+    H.Container H.Vector a
   ) =>
   Proxy d ->
   Array s0 a ->
@@ -450,7 +459,8 @@ insert ::
     HasShape s,
     HasShape s',
     HasShape (Insert d s),
-    H.Element a, H.Container H.Vector a
+    H.Element a,
+    H.Container H.Vector a
   ) =>
   Proxy d ->
   Proxy i ->
@@ -480,7 +490,8 @@ append ::
     HasShape s,
     HasShape s',
     HasShape (Insert d s),
-    H.Element a, H.Container H.Vector a
+    H.Element a,
+    H.Container H.Vector a
   ) =>
   Proxy d ->
   Array s a ->
@@ -499,7 +510,8 @@ reorder ::
     HasShape s,
     HasShape (Reorder s ds),
     CheckReorder ds s,
-    H.Element a, H.Container H.Vector a
+    H.Element a,
+    H.Container H.Vector a
   ) =>
   Proxy ds ->
   Array s a ->
@@ -529,8 +541,10 @@ expand ::
   ( HasShape s,
     HasShape s',
     HasShape ((++) s s'),
-    H.Element a, H.Container H.Vector a,
-    H.Element b, H.Container H.Vector b,
+    H.Element a,
+    H.Container H.Vector a,
+    H.Element b,
+    H.Container H.Vector b,
     H.Element c
   ) =>
   (a -> b -> c) ->
@@ -566,7 +580,8 @@ slice ::
     KnownNatss pss,
     KnownNat (Rank pss),
     s' ~ Ranks pss,
-    H.Element a, H.Container H.Vector a
+    H.Element a,
+    H.Container H.Vector a
   ) =>
   Proxy pss ->
   Array s a ->
@@ -657,7 +672,8 @@ instance
     H.Numeric a,
     KnownNat m,
     HasShape '[m, m],
-    H.Element a, H.Container H.Vector a
+    H.Element a,
+    H.Container H.Vector a
   ) =>
   Multiplicative (Matrix m m a)
   where
@@ -741,4 +757,3 @@ mmult ::
   Array [k, n] a ->
   Array [m, n] a
 mmult (Array x) (Array y) = Array $ x H.<> y
-
