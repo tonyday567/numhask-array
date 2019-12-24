@@ -17,7 +17,63 @@
 {-# OPTIONS_GHC -Wall #-}
 
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
-module NumHask.Array.Shape where
+module NumHask.Array.Shape
+  ( Shape(..),
+    HasShape(..),
+    type (++),
+    type (!!),
+    Take,
+    Drop,
+    Reverse,
+    ReverseGo,
+    Filter,
+    rank,
+    Rank,
+    ranks,
+    Ranks,
+    size,
+    Size,
+    dimension,
+    Dimension,
+    flatten,
+    shapen,
+    minimum,
+    Minimum,
+    checkIndex,
+    CheckIndex,
+    checkIndexes,
+    CheckIndexes,
+    addIndex,
+    AddIndex,
+    dropIndex,
+    DropIndex,
+    posRelative,
+    PosRelative,
+    PosRelativeGo,
+    addIndexes,
+    AddIndexes,
+    AddIndexesGo,
+    dropIndexes,
+    DropIndexes,
+    takeIndexes,
+    TakeIndexes,
+    exclude,
+    Exclude,
+    concatenate',
+    Concatenate,
+    CheckConcatenate,
+    Insert,
+    CheckInsert,
+    reorder',
+    Reorder,
+    CheckReorder,
+    squeeze',
+    Squeeze,
+    incAt,
+    decAt,
+    KnownNats(..),
+    KnownNatss(..)
+  ) where
 
 import Data.List ((!!))
 import Data.Type.Bool
@@ -25,6 +81,7 @@ import GHC.TypeLits as L
 import NumHask.Prelude as P hiding (Last, minimum)
 
 -- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
+-- Using [Int] as the index for an array nicely represents the practical interests and constraints downstream of this high-level API: densely-packed numbers (reals or integrals), indexed and layered.
 newtype Shape (s :: [Nat]) = Shape {shapeVal :: [Int]} deriving (Show)
 
 class HasShape s where
@@ -285,6 +342,10 @@ exclude r = dropIndexes [0 .. (r - 1)]
 type family Exclude (r :: Nat) (i :: [Nat]) where
   Exclude r i = DropIndexes (EnumerateGo r) i
 
+-- | concatenate 
+--
+-- >>> concatenate' 1 [2,3,4] [2,3,4]
+-- [2,6,4]
 concatenate' :: Int -> [Int] -> [Int] -> [Int]
 concatenate' i s0 s1 = take i s0 ++ (dimension s0 i + dimension s1 i : drop (i + 1) s0)
 
@@ -310,7 +371,7 @@ incAt d s = take d s ++ (dimension s d + 1 : drop (d + 1) s)
 decAt :: Int -> [Int] -> [Int]
 decAt d s = take d s ++ (dimension s d - 1 : drop (d + 1) s)
 
--- /reorder' s i/ reorders the dimensions of shape /s/ according to a list of positions /i/
+-- | /reorder' s i/ reorders the dimensions of shape /s/ according to a list of positions /i/
 --
 -- >>> reorder' [2,3,4] [2,0,1]
 -- [4,2,3]
@@ -334,6 +395,7 @@ type family CheckReorder (ds :: [Nat]) (s :: [Nat]) where
       (L.TypeError ('Text "bad dimensions"))
       ~ 'True
 
+-- | remove 1's from a list
 squeeze' :: (Eq a, Num a) => [a] -> [a]
 squeeze' = filter (/=1)
 

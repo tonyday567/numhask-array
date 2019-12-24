@@ -1,11 +1,8 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoImplicitPrelude #-}
@@ -17,23 +14,24 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 -- | Arrays with a fixed shape.
 module NumHask.Array.Fixed
-  ( -- * Fixed-sixed arrays
-    --
-    -- $array
+  ( -- $setup
     Array (..),
+
+    -- * Conversion
     with,
     shape,
     toDynamic,
 
     -- * Operators
-    --
-    -- $operators
     reshape,
     transpose,
     diag,
+    ident,
+    singleton,
     selects,
     selectsExcept,
     folds,
@@ -47,33 +45,32 @@ module NumHask.Array.Fixed
     expand,
     contract,
     dot,
+    mult,
     slice,
     squeeze,
-    ident,
-    singleton,
 
     -- * Scalar
     --
-    -- $scalar
+    -- Scalar specialisations
     Scalar,
     fromScalar,
     toScalar,
 
     -- * Vector
     --
-    -- $scalar
+    -- Vector specialisations.
     Vector,
 
     -- * Matrix
     --
-    -- $matrix
+    -- Matrix specialisations.
     Matrix,
     col,
     row,
     safeCol,
     safeRow,
     mmult,
-    )
+  )
 where
 
 import Data.Distributive (Distributive (..))
@@ -86,19 +83,21 @@ import GHC.TypeLits
 import qualified NumHask.Array.Dynamic as D
 import NumHask.Array.Shape
 import NumHask.Prelude as P hiding (identity, outer, transpose)
+import Control.Category (id)
 
 -- $setup
 -- >>> :set -XDataKinds
 -- >>> :set -XOverloadedLists
 -- >>> :set -XTypeFamilies
 -- >>> :set -XFlexibleContexts
--- >>> let s = [1] :: Array ('[] :: [Nat]) Int
+-- >>> let s = [1] :: Array ('[] :: [Nat]) Int -- scalar
+-- >>> let v = [1,2,3] :: Array '[3] Int       -- vector
+-- >>> let m = [0..11] :: Array '[3,4] Int     -- matrix
 -- >>> let a = [1..24] :: Array '[2,3,4] Int
--- >>> let v = [1,2,3] :: Array '[3] Int
--- >>> let m = [0..11] :: Array '[3,4] Int
 
 -- | a multidimensional array with a type-level shape
 --
+-- >>> let a = [1..24] :: Array '[2,3,4] Int
 -- >>> a
 -- [[[1, 2, 3, 4],
 --   [5, 6, 7, 8],
@@ -106,6 +105,7 @@ import NumHask.Prelude as P hiding (identity, outer, transpose)
 --  [[13, 14, 15, 16],
 --   [17, 18, 19, 20],
 --   [21, 22, 23, 24]]]
+--
 -- >>> [1,2,3] :: Array '[2,2] Int
 -- [[*** Exception: NumHaskException {errorMessage = "shape mismatch"}
 newtype Array s a = Array {unArray :: V.Vector a} deriving (Eq, Ord, NFData, Functor, Foldable, Generic, Traversable)
@@ -203,7 +203,6 @@ instance (HasShape s, Subtractive a, Epsilon a) => Epsilon (Array s a) where
 
   nearZero (Array a) = all nearZero a
 
--- | from flat list
 instance
   ( HasShape s
   ) =>
@@ -222,9 +221,7 @@ instance
 
   toList (Array v) = V.toList v
 
--- * shape
-
--- | get shape of an Array as a value
+-- | Get shape of an Array as a value.
 --
 -- >>> shape a
 -- [2,3,4]
@@ -236,7 +233,7 @@ shape _ = shapeVal $ toShape @s
 toDynamic :: (HasShape s) => Array s a -> D.Array a
 toDynamic a = D.fromFlatList (shape a) (P.toList a)
 
--- | use a dynamic array in a fixed context
+-- | Use a dynamic array in a fixed context.
 --
 -- >>> with (D.fromFlatList [2,3,4] [1..24]) (selects (Proxy :: Proxy '[0,1]) [1,1] :: Array '[2,3,4] Int -> Array '[4] Int)
 -- [17, 18, 19, 20]
@@ -248,9 +245,7 @@ with ::
   r
 with (D.Array _ v) f = f (Array v)
 
--- * operations
-
--- | reshape an array (with the same number of elements)
+-- | Reshape an array (with the same number of elements).
 --
 -- >>> reshape a :: Array '[4,3,2] Int
 -- [[[1, 2],
@@ -278,14 +273,14 @@ reshape a = tabulate (index a . shapen s . flatten s')
     s = shapeVal (toShape @s)
     s' = shapeVal (toShape @s')
 
--- | reverse indices eg transposes the element /Aijk/ to /Akji/
+-- | Reverse indices eg transposes the element A/ijk/ to A/kji/.
 --
 -- >>> index (transpose a) [1,0,0] == index a [0,0,1]
 -- True
 transpose :: forall a s. (HasShape s, HasShape (Reverse s)) => Array s a -> Array (Reverse s) a
 transpose a = tabulate (index a . reverse)
 
--- |
+-- | The identity array.
 --
 -- >>> ident :: Array '[3,2] Int
 -- [[1, 0],
@@ -299,7 +294,8 @@ ident = tabulate (bool zero one . isDiag)
     isDiag [x, y] = x == y
     isDiag (x : y : xs) = x == y && isDiag (y : xs)
 
--- |
+-- | Extract the diagonal of an array.
+--
 -- >>> diag (ident :: Array '[3,2] Int)
 -- [1, 1]
 diag ::
@@ -315,7 +311,8 @@ diag a = tabulate go
     go (s' : _) = index a (replicate (length ds) s')
     ds = shapeVal (toShape @s)
 
--- |
+-- | Create an array composed of a single value.
+--
 -- >>> singleton one :: Array '[3,2] Int
 -- [[1, 1],
 --  [1, 1],
@@ -323,7 +320,7 @@ diag a = tabulate go
 singleton :: (HasShape s) => a -> Array s a
 singleton a = tabulate (const a)
 
--- | /selects ds ps a/ select from /a/ elements /ds/ dimensions at positions /ps/
+-- | Select an array along dimensions.
 --
 -- >>> let s = selects (Proxy :: Proxy '[0,1]) [1,1] a
 -- >>> :t s
@@ -347,7 +344,7 @@ selects _ i a = tabulate go
     go s = index a (addIndexes s ds i)
     ds = shapeVal (toShape @ds)
 
--- | select an index /except/ along dimensions
+-- | Select an index /except/ along specified dimensions.
 --
 -- >>> let s = selectsExcept (Proxy :: Proxy '[2]) [1,1] a
 -- >>> :t s
@@ -371,7 +368,7 @@ selectsExcept _ i a = tabulate go
     go s = index a (addIndexes i ds s)
     ds = shapeVal (toShape @ds)
 
--- | fold along specified dimensions
+-- | Fold along specified dimensions.
 --
 -- >>> folds sum (Proxy :: Proxy '[1]) a
 -- [68, 100, 132]
@@ -392,7 +389,7 @@ folds f d a = tabulate go
   where
     go s = f (selects d s a)
 
--- | extracts dimensions to an outer layer
+-- | Extracts dimensions to an outer layer.
 --
 -- >>> let e = extracts (Proxy :: Proxy '[1,2]) a
 -- >>> :t e
@@ -413,7 +410,7 @@ extracts d a = tabulate go
   where
     go s = selects d s a
 
--- | extracts /except/ dimensions to an outer layer
+-- | Extracts /except/ dimensions to an outer layer.
 --
 -- >>> let e = extractsExcept (Proxy :: Proxy '[1,2]) a
 -- >>> :t e
@@ -434,7 +431,7 @@ extractsExcept d a = tabulate go
   where
     go s = selectsExcept d s a
 
--- | join inner and outer dimension layers
+-- | Join inner and outer dimension layers.
 --
 -- >>> let e = extracts (Proxy :: Proxy '[1,0]) a
 --
@@ -464,7 +461,7 @@ joins _ a = tabulate go
     go s = index (index a (takeIndexes s ds)) (dropIndexes s ds)
     ds = shapeVal (toShape @ds)
 
--- | maps along specified dimensions
+-- | Maps a function along specified dimensions.
 --
 -- >>> :t maps (transpose) (Proxy :: Proxy '[1]) a
 -- maps (transpose) (Proxy :: Proxy '[1]) a :: Array '[4, 3, 2] Int
@@ -487,7 +484,7 @@ maps ::
   Array st' b
 maps f d a = joins d (fmapRep f (extracts d a))
 
--- | concatenate along a dimension
+-- | Concatenate along a dimension.
 --
 -- >>> :t concatenate (Proxy :: Proxy 1) a a
 -- concatenate (Proxy :: Proxy 1) a a :: Array '[2, 6, 4] Int
@@ -521,7 +518,7 @@ concatenate _ s0 s1 = tabulate go
     ds0 = shapeVal (toShape @s0)
     d = fromIntegral $ natVal @d Proxy
 
--- | /insert (Proxy :: Proxy d) (Proxy :: Proxy i)/ insert along the dimension /d/ at position /i/
+-- | Insert along a dimension at a position.
 --
 -- >>> insert (Proxy :: Proxy 2) (Proxy :: Proxy 0) a ([100..105])
 -- [[[100, 1, 2, 3, 4],
@@ -554,7 +551,7 @@ insert _ _ a b = tabulate go
     d = fromIntegral $ natVal @d Proxy
     i = fromIntegral $ natVal @i Proxy
 
--- | insert along a dimension at the end
+-- | Insert along a dimension at the end.
 --
 -- >>>  :t append (Proxy :: Proxy 0) a
 -- append (Proxy :: Proxy 0) a
@@ -575,7 +572,7 @@ append ::
   Array (Insert d s) a
 append d = insert d (Proxy :: Proxy (Dimension s d - 1))
 
--- | change the order of dimensions
+-- | Change the order of dimensions.
 --
 -- >>> let r = reorder (Proxy :: Proxy '[2,0,1]) a
 -- >>> :t r
@@ -595,13 +592,15 @@ reorder _ a = tabulate go
     go s = index a (addIndexes [] ds s)
     ds = shapeVal (toShape @ds)
 
--- | product two arrays using the supplied binary function
--- If the function is multiply, and the arrays are tensors,
+-- | Product two arrays using the supplied binary function.
+--
+-- For context, if the function is multiply, and the arrays are tensors,
 -- then this can be interpreted as a tensor product.
 --
 -- https://en.wikipedia.org/wiki/Tensor_product
 --
 -- The concept of a tensor product is a dense crossroad, and a complete treatment is elsewhere.  To quote:
+--
 -- ... the tensor product can be extended to other categories of mathematical objects in addition to vector spaces, such as to matrices, tensors, algebras, topological vector spaces, and modules. In each such case the tensor product is characterized by a similar universal property: it is the freest bilinear operation. The general concept of a "tensor product" is captured by monoidal categories; that is, the class of all things that have a tensor product is a monoidal category.
 --
 -- >>> expand (*) v v
@@ -622,9 +621,9 @@ expand f a b = tabulate (\i -> f (index a (take r i)) (index b (drop r i)))
   where
     r = rank (shape a)
 
--- | contract an array by applying the supplied (folding) function on diagonal elements of the dimensions.
+-- | Contract an array by applying the supplied (folding) function on diagonal elements of the dimensions.
 --
--- This generalises a tensor contraction by allowing the number of contracting diagonals to be other than 2, and allowing another binary other than addition
+-- This generalises a tensor contraction by allowing the number of contracting diagonals to be other than 2, and allowing a binary operator other than multiplication.
 --
 -- >>> let b = [1..6] :: Array '[2,3] Int
 -- >>> contract sum (Proxy :: Proxy '[1,2]) (expand (*) b (transpose b))
@@ -647,16 +646,16 @@ contract ::
   Array s' b
 contract f xs a = f . diag <$> extractsExcept xs a
 
--- | a generalisation of a dot operation, which is a multiplicative expansion of two arrays and sum contraction along the middle two dimensions.
+-- | A generalisation of a dot operation, which is a multiplicative expansion of two arrays and sum contraction along the middle two dimensions.
 --
--- dot sum (*) on two matrices is known as matrix multiplication
+-- matrix multiplication
 --
 -- >>> let b = [1..6] :: Array '[2,3] Int
 -- >>> dot sum (*) b (transpose b)
 -- [[14, 32],
 --  [32, 77]]
 --
--- dot sum (*) on two vectors is known as the inner product
+-- inner product
 --
 -- >>> let v = [1..3] :: Array '[3] Int
 -- >>> :t dot sum (*) v v
@@ -665,14 +664,38 @@ contract f xs a = f . diag <$> extractsExcept xs a
 -- >>> dot sum (*) v v
 -- 14
 --
--- dot sum (*) m v on a matrix and a vector is matrix-vector multiplication
--- Note that an `Array '[3] Int` is neither a row vector nor column vector. `dot` is not turning the vector into a matrix and then using matrix multiplication.
+-- matrix-vector multiplication
+-- (Note how the vector doesn't need to be converted to a row or column vector)
 --
--- >>>  dot sum (*) v b
+-- >>> dot sum (*) v b
 -- [9, 12, 15]
 --
 -- >>> dot sum (*) b v
 -- [14, 32]
+--
+-- dot allows operation on mis-shaped matrices:
+--
+-- >>> let m23 = [1..6] :: Array '[2,3] Int
+-- >>> let m12 = [1,2] :: Array '[1,2] Int
+-- >>> shape $ dot sum (*) m23 m12
+-- [2,2]
+--
+-- the algorithm ignores excess positions within the contracting dimension(s):
+--
+-- m23 shape: 2 3
+--
+-- m12 shape: 1 2
+--
+-- res shape: 2 2
+--
+-- FIXME: work out whether this is a feature or a bug...
+--
+-- find instances of a vector in a matrix
+--
+-- >>> let cs = fromList ("abacbaab" :: [Char]) :: Array '[4,2] Char
+-- >>> let v = fromList ("ab" :: [Char]) :: Vector 2 Char
+-- >>> dot (all id) (==) cs v
+-- [True, False, False, True]
 dot ::
   forall a b c d sa sb s' ss se.
   ( HasShape sa,
@@ -695,7 +718,54 @@ dot ::
   Array s' d
 dot f g a b = contract f (Proxy :: Proxy '[Rank sa - 1, Rank sa]) (expand g a b)
 
--- | select elements along every dimension
+-- | Array multiplication.
+--
+-- matrix multiplication
+--
+-- >>> let b = [1..6] :: Array '[2,3] Int
+-- >>> mult b (transpose b)
+-- [[14, 32],
+--  [32, 77]]
+--
+-- inner product
+--
+-- >>> let v = [1..3] :: Array '[3] Int
+-- >>> :t mult v v
+-- mult v v :: Array '[] Int
+--
+-- >>> mult v v
+-- 14
+--
+-- matrix-vector multiplication
+--
+-- >>> mult v b
+-- [9, 12, 15]
+--
+-- >>> mult b v
+-- [14, 32]
+mult ::
+  forall a sa sb s' ss se.
+  ( Additive a,
+    Multiplicative a,
+    HasShape sa,
+    HasShape sb,
+    HasShape (sa ++ sb),
+    se ~ TakeIndexes (sa ++ sb) '[Rank sa - 1, Rank sa],
+    HasShape se,
+    KnownNat (Minimum se),
+    KnownNat (Rank sa - 1),
+    KnownNat (Rank sa),
+    ss ~ '[Minimum se],
+    HasShape ss,
+    s' ~ DropIndexes (sa ++ sb) '[Rank sa - 1, Rank sa],
+    HasShape s'
+  ) =>
+  Array sa a ->
+  Array sb a ->
+  Array s' a
+mult = dot sum (*)
+
+-- | Select elements along positions in every dimension.
 --
 -- >>> let s = slice (Proxy :: Proxy '[[0,1],[0,2],[1,2]]) a
 -- >>> :t s
@@ -729,7 +799,7 @@ slice pss a = tabulate go
     go s = index a (zipWith (!!) pss' s)
     pss' = natValss pss
 
--- | remove singleton dimensions
+-- | Remove single dimensions.
 --
 -- >>> let a = [1..24] :: Array '[2,1,3,4,1] Int
 -- >>> a
@@ -779,10 +849,10 @@ squeeze (Array x) = Array x
 
 -- | <https://en.wikipedia.org/wiki/Scalarr_(mathematics) Wiki Scalar>
 --
--- An /Array '[] a/ despite being a Scalar is never-the-less a one-element vector under the hood. Unification of representation is unexplored.
+-- An Array '[] a despite being a Scalar is never-the-less a one-element vector under the hood. Unification of representation is unexplored.
 type Scalar a = Array ('[] :: [Nat]) a
 
--- | unwrapping scalars is probably a performance bottleneck
+-- | Unwrapping scalars is probably a performance bottleneck.
 --
 -- >>> let s = [3] :: Array ('[] :: [Nat]) Int
 -- >>> fromScalar s
@@ -790,21 +860,15 @@ type Scalar a = Array ('[] :: [Nat]) a
 fromScalar :: (HasShape ('[] :: [Nat])) => Array ('[] :: [Nat]) a -> a
 fromScalar a = index a ([] :: [Int])
 
--- | convert a number to a scalar
+-- | Convert a number to a scalar.
 --
 -- >>> :t toScalar 2
 -- toScalar 2 :: Num a => Array '[] a
 toScalar :: (HasShape ('[] :: [Nat])) => a -> Array ('[] :: [Nat]) a
 toScalar a = fromList [a]
 
--- $vector
--- Vector specialisations
-
 -- | <https://en.wikipedia.org/wiki/Vector_(mathematics_and_physics) Wiki Vector>
 type Vector s a = Array '[s] a
-
--- $matrix
--- Matrix specialisations
 
 -- | <https://en.wikipedia.org/wiki/Matrix_(mathematics) Wiki Matrix>
 type Matrix m n a = Array '[m, n] a
@@ -823,7 +887,7 @@ instance
 
   one = ident
 
--- | extract specialised to a matrix
+-- | Extract specialised to a matrix.
 --
 -- >>> row 1 m
 -- [4, 5, 6, 7]
@@ -832,7 +896,7 @@ row i (Array a) = Array $ V.slice (i * n) n a
   where
     n = fromIntegral $ natVal @n Proxy
 
--- | row extraction checked at type level
+-- | Row extraction checked at type level.
 --
 -- >>> safeRow (Proxy :: Proxy 1) m
 -- [4, 5, 6, 7]
@@ -847,7 +911,7 @@ safeRow _j (Array a) = Array $ V.slice (j * n) n a
     n = fromIntegral $ natVal @n Proxy
     j = fromIntegral $ natVal @j Proxy
 
--- | extract specialised to a matrix
+-- | Extract specialised to a matrix.
 --
 -- >>> col 1 m
 -- [1, 5, 9]
@@ -857,7 +921,7 @@ col i (Array a) = Array $ V.generate m (\x -> V.unsafeIndex a (i + x * n))
     m = fromIntegral $ natVal @m Proxy
     n = fromIntegral $ natVal @n Proxy
 
--- | column extraction checked at type level
+-- | Column extraction checked at type level.
 --
 -- >>> safeCol (Proxy :: Proxy 1) m
 -- [1, 5, 9]
@@ -873,7 +937,7 @@ safeCol _j (Array a) = Array $ V.generate m (\x -> V.unsafeIndex a (j + x * n))
     n = fromIntegral $ natVal @n Proxy
     j = fromIntegral $ natVal @j Proxy
 
--- | matrix multiplication
+-- | Matrix multiplication.
 --
 -- This is dot sum (*) specialised to matrices
 --

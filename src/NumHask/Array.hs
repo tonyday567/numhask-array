@@ -1,64 +1,34 @@
 {-# OPTIONS_GHC -Wall #-}
 
--- | Higher-kinded numbers that can be represented with an [Int] index into elements.
+-- | Numbers that can be indexed into with an Int list.
+--
 --
 module NumHask.Array
-  ( -- * Shapes
+  ( -- * Imports
     --
-    -- $shape
+    -- $imports
+    --
     module NumHask.Array.Shape,
-
-    -- * Numbers with a fixed shape
-    --
-    -- $fixed
     module NumHask.Array.Fixed,
-
-    -- * Numbers with a dynamic shape
-    --
-    -- $dynamic
-
-    -- * HMatrix API
-    --
-    -- $hmatrix
-
   ) where
 
 import NumHask.Array.Shape
 import NumHask.Array.Fixed
 
--- $shape
+-- $imports
 --
--- Using [`Int`] as the index for an array nicely represents the practical interests and constraints downstream of this high-level API: densely-packed numbers (reals or integrals), indexed and layered.
-
--- $fixed
+-- > import NumHask.Array
 --
--- A design principle of modern haskell (synonymous with ghc usage) is to push computation into compilation. `Representable` is an iconic example. `Shape` must ultimately be known at compile-time, but if it is, we can dispense with a large classes of runtime check which slow pipelines.  This tends to create computation where shape is abstracted and we fold algorithms in and out of structures.
-
--- $dynamic
+-- imports the fixed version of `NumHask.Array.Fixed.Array` and `Shape`
 --
--- | In many situations, where shape is being tracked or otherwise only known at runtime, a clear module arrangement is:
+-- In many situations, where shape is being tracked or otherwise only known at runtime, a clear module arrangement is:
 --
--- >>> import NumHask.Array.Shape
--- >>> import qualified NumHask.Array.Fixed as F
--- >>> import qualified NumHask.Array.Dynamic as D
-
--- $hmatrix
+-- > import NumHask.Array.Shape
+-- > import qualified NumHask.Array.Fixed as F
+-- > import qualified NumHask.Array.Dynamic as D
 --
--- | hmatrix remains the speed king within haskell, and numhask-array is no exception. If speed matters then:
+-- A hmatrix instance of Array is also provided for performance purposes:
 --
--- >>> import NumHask.Array.Shape
--- >>> import qualified NumHask.Array.HMatrix as H
+-- > import NumHask.Array.Shape
+-- > import qualified NumHask.Array.HMatrix as H
 --
--- will deliver the NumHask API over a HMatrix representation, and then the current fastest way to multiply matices in boiler-plate haskell.
---
--- FIXME: fill out Fixed API
-
-
-
-
-
-
-
-
-
-
