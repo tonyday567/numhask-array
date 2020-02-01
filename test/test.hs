@@ -21,7 +21,7 @@ genAIntegral = fromList <$> replicateM (fromIntegral n) integral_
   where
     n = product $ shapeVal $ toShape @r
 
-genARational :: forall a m r. (H.MonadGen m, HasShape r, Field a, Subtractive a, ToRatio a Integer, FromRatio a Integer) => m (Array (r :: [Nat]) a)
+genARational :: forall a m r. (H.MonadGen m, HasShape r, Field a, ToRatio a Integer, FromRatio a Integer) => m (Array (r :: [Nat]) a)
 genARational = fromList <$> replicateM (fromIntegral n) negUniform
   where
     n = product $ shapeVal $ toShape @r

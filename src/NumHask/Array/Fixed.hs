@@ -83,7 +83,7 @@ import GHC.Show (Show (..))
 import GHC.TypeLits
 import qualified NumHask.Array.Dynamic as D
 import NumHask.Array.Shape
-import NumHask.Prelude as P hiding (identity, outer, transpose)
+import NumHask.Prelude as P hiding (identity, transpose)
 
 -- $setup
 -- >>> :set -XDataKinds

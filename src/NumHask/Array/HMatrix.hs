@@ -148,19 +148,7 @@ instance
 
 type instance Actor (Array s a) = a
 
-instance
-  ( HasShape s,
-    P.Distributive a,
-    CommutativeRing a,
-    Semiring a,
-    H.Container H.Vector a,
-    Num (H.Vector a),
-    Num a
-  ) =>
-  Hilbert (Array s a)
-  where
-  (<.>) (Array a) (Array b) = H.sumElements $ H.liftMatrix2 (Prelude.*) a b
-  {-# INLINE (<.>) #-}
+-- (<.>) (Array a) (Array b) = H.sumElements $ H.liftMatrix2 (Prelude.*) a b
 
 instance
   ( HasShape s,
