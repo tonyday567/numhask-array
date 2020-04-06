@@ -7,5 +7,5 @@ extra-deps:
   - numhask-0.4.0
   - numhask-prelude-0.3.3
   - numhask-hedgehog-0.3.2
-  - numhask-space-0.3.0
+  - numhask-space-0.3.1
   - tdigest-0.2.1
