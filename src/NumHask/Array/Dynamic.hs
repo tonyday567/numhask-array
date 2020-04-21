@@ -22,6 +22,10 @@ module NumHask.Array.Dynamic
     -- * Conversion
     fromFlatList,
 
+    -- * representable replacements
+    index,
+    tabulate,
+
     -- * Operators
     reshape,
     transpose,
