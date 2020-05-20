@@ -77,7 +77,6 @@ where
 import Data.List ((!!))
 import qualified Data.Vector as V
 import GHC.Exts (IsList (..))
-import GHC.Show (Show (..))
 import GHC.TypeLits
 import qualified NumHask.Array.Dynamic as D
 import qualified NumHask.Array.Fixed as F

@@ -7,14 +7,12 @@
 
 module Main where
 
-import GHC.Exts (IsList (..))
 import qualified Hedgehog as H
 import NumHask.Array.Fixed
 import NumHask.Array.Shape
 import NumHask.Hedgehog
 import NumHask.Prelude as P
 import Test.DocTest
-import qualified Prelude
 
 genAIntegral :: forall a m r. (HasShape r, H.MonadGen m, Additive a, Bounded a, ToInteger a, FromInteger a) => m (Array (r :: [Nat]) a)
 genAIntegral = fromList <$> replicateM (fromIntegral n) integral_
@@ -37,13 +35,13 @@ main = do
   bVInt <-
     assertProps
       "Vector Int 6"
-      (Prelude.fromInteger 100)
+      100
       (genAIntegral :: H.Gen (Vector 6 Int))
       numhaskProps
   bMInt <-
     assertProps
       "Matrix '[3,4] Int"
-      (Prelude.fromInteger 100)
+      100
       (genAIntegral :: H.Gen (Array '[3, 4] Int))
       numhaskProps
   unless

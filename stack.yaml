@@ -1,11 +1,11 @@
-resolver: lts-14.13
+resolver: lts-15.13
 
 packages:
   - .
 
 extra-deps:
-  - numhask-0.4.0
-  - numhask-prelude-0.3.3
-  - numhask-hedgehog-0.3.2
-  - numhask-space-0.3.1
-  - tdigest-0.2.1
+  - numhask-0.5.0
+  - numhask-prelude-0.5.0
+  - numhask-hedgehog-0.4.0
+  - numhask-space-0.4.0
+  - protolude-0.3.0
