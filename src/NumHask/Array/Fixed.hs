@@ -5,14 +5,14 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE NoStarIsType #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
@@ -127,7 +127,6 @@ instance
   ) =>
   Representable (Array s)
   where
-
   type Rep (Array s) = [Int]
 
   tabulate f =
@@ -149,7 +148,6 @@ instance
   ) =>
   Additive (Array s a)
   where
-
   (+) = liftR2 (+)
 
   zero = pureRep zero
@@ -184,7 +182,6 @@ instance
   (HasShape s, Multiplicative a) =>
   MultiplicativeAction (Array s a)
   where
-
   (.*) r s = fmap (* s) r
   {-# INLINE (.*) #-}
 
@@ -198,7 +195,6 @@ instance (HasShape s, MeetSemiLattice a) => MeetSemiLattice (Array s a) where
   (/\) = liftR2 (/\)
 
 instance (HasShape s, Subtractive a, Epsilon a) => Epsilon (Array s a) where
-
   epsilon = singleton epsilon
 
   nearZero (Array a) = all nearZero a
@@ -208,7 +204,6 @@ instance
   ) =>
   IsList (Array s a)
   where
-
   type Item (Array s a) = a
 
   fromList l =
@@ -882,7 +877,6 @@ instance
   ) =>
   Multiplicative (Matrix m m a)
   where
-
   (*) = mmult
 
   one = ident

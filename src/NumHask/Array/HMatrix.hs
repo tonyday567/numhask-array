@@ -5,14 +5,14 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE NoStarIsType #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
@@ -120,7 +120,6 @@ instance
   ) =>
   Additive (Array s a)
   where
-
   (+) (Array x1) (Array x2) = Array $ H.add x1 x2
 
   zero = Array $ H.konst zero (n, m)
@@ -137,7 +136,6 @@ instance
   ) =>
   Multiplicative (Array s a)
   where
-
   (*) (Array x1) (Array x2) = Array $ H.liftMatrix2 (Prelude.*) x1 x2
 
   one = Array $ H.konst one (n, m)
@@ -157,7 +155,6 @@ instance
   ) =>
   MultiplicativeAction (Array s a)
   where
-
   (.*) (Array r) s = Array $ H.cmap (* s) r
   {-# INLINE (.*) #-}
 
@@ -173,7 +170,6 @@ instance
   ) =>
   IsList (Array s a)
   where
-
   type Item (Array s a) = a
 
   fromList l =
@@ -664,7 +660,6 @@ instance
   ) =>
   Multiplicative (Matrix m m a)
   where
-
   (*) = mmult
 
   one = ident

@@ -1,19 +1,17 @@
 {-# OPTIONS_GHC -Wall #-}
 
 -- | Numbers that can be indexed into with an Int list.
---
---
 module NumHask.Array
   ( -- * Imports
     --
     -- $imports
-    --
     module NumHask.Array.Shape,
     module NumHask.Array.Fixed,
-  ) where
+  )
+where
 
-import NumHask.Array.Shape
 import NumHask.Array.Fixed
+import NumHask.Array.Shape
 
 -- $imports
 --
@@ -31,4 +29,3 @@ import NumHask.Array.Fixed
 --
 -- > import NumHask.Array.Shape
 -- > import qualified NumHask.Array.HMatrix as H
---

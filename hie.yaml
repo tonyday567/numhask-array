@@ -1,0 +1,6 @@
+cradle:
+  stack:
+    - path: "./src/"
+      component: "numhask-array:lib"
+    - path: "./test/"
+      component: "numhask-array:test"
