@@ -163,22 +163,6 @@ instance
 type instance Actor (Array s a) = a
 
 instance
-  ( Multiplicative a,
-    HasShape s
-  ) =>
-  HadamardMultiplication (Array s) a
-  where
-  (.*.) = liftR2 (*)
-
-instance
-  ( Divisive a,
-    HasShape s
-  ) =>
-  HadamardDivision (Array s) a
-  where
-  (./.) = liftR2 (/)
-
-instance
   (HasShape s, Multiplicative a) =>
   MultiplicativeAction (Array s a)
   where
