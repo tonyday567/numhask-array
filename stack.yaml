@@ -5,4 +5,5 @@ packages:
 
 extra-deps:
   - numhask-0.6.0
-
+  - massiv-0.5.3.2
+  
