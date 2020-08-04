@@ -106,7 +106,7 @@ import qualified Data.Massiv.Vector as V
 --
 -- >>> [1,2,3] :: Array '[2,2] Int
 -- [[*** Exception: NumHaskException {errorMessage = "shape mismatch"}
-newtype Array s a = Array { massive :: V.Vector V.B a } deriving (Eq, Functor, Foldable)
+newtype Array s a = Array { massive :: V.Vector V.B a } deriving (Eq, Functor, Foldable, NFData)
 
 instance (HasShape s, Show a) => Show (Array s a) where
   show a = GHC.Show.show (toDynamic a)
