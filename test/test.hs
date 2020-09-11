@@ -17,5 +17,3 @@ main = do
   doctest ["src/NumHask/Array/Shape.hs"]
   putStrLn ("NumHask.Array.Dynamic DocTest turned on" :: Text)
   doctest ["src/NumHask/Array/Dynamic.hs"]
-  putStrLn ("NumHask.Array.Massiv DocTest turned on" :: Text)
-  doctest ["src/NumHask/Array/Massiv.hs"]
