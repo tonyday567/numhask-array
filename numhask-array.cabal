@@ -1,10 +1,24 @@
 cabal-version: 2.4
 name:          numhask-array
-version:       0.7.0
+version:       0.8.0
 synopsis:
-  n-dimensional arrays
+    Multi-dimensional array interface for numhask.
 description:
-  n-dimensional arrays founded on numhask.
+    This package provides an interface into the [numhask](https://hackage.haskell.org/package/numhask) API, and both type- and value-level shape manipulation routines.
+    .
+    == Usage
+    .
+    >>> {-# LANGUAGE NegativeLiterals #-}
+    >>> {-# LANGUAGE RebindableSyntax #-}
+    >>> import NumHask.Prelude
+    >>> import NumHask.Array
+    .
+    In situations where shape is only known at runtime, a clear module configuration is:
+    .
+    >>> import NumHask.Array.Shape
+    >>> import qualified NumHask.Array.Fixed as F
+    >>> import qualified NumHask.Array.Dynamic as D
+
 category:
   project
 homepage:
@@ -37,10 +51,6 @@ library
   hs-source-dirs:
     src
   default-extensions:
-    NegativeLiterals
-    NoImplicitPrelude
-    OverloadedStrings
-    UnicodeSyntax
   ghc-options:
     -Wall
     -Wcompat
@@ -68,10 +78,6 @@ test-suite test
   hs-source-dirs:
     test
   default-extensions:
-    NegativeLiterals
-    NoImplicitPrelude
-    OverloadedStrings
-    UnicodeSyntax
   build-depends:
     base >=4.11 && <5,
     doctest >=0.13 && <0.17,

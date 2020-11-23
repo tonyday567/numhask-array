@@ -50,6 +50,7 @@ module NumHask.Array.Fixed
     squeeze,
 
     -- * Scalar
+
     --
     -- Scalar specialisations
     Scalar,
@@ -57,11 +58,13 @@ module NumHask.Array.Fixed
     toScalar,
 
     -- * Vector
+
     --
     -- Vector specialisations.
     Vector,
 
     -- * Matrix
+
     --
     -- Matrix specialisations.
     Matrix,
@@ -164,27 +167,27 @@ instance
   (HasShape s, Multiplicative a) =>
   MultiplicativeAction (Array s a) a
   where
-  (.*) s r = fmap (s*) r
+  (.*) s r = fmap (s *) r
   {-# INLINE (.*) #-}
 
-  (*.) r s = fmap (*s) r
+  (*.) r s = fmap (* s) r
   {-# INLINE (*.) #-}
 
 instance
   (HasShape s, Additive a) =>
   AdditiveAction (Array s a) a
   where
-  (.+) s r = fmap (s+) r
+  (.+) s r = fmap (s +) r
   {-# INLINE (.+) #-}
 
-  (+.) r s = fmap (+s) r
+  (+.) r s = fmap (+ s) r
   {-# INLINE (+.) #-}
 
 instance
   (HasShape s, Subtractive a) =>
   SubtractiveAction (Array s a) a
   where
-  (.-) s r = fmap (s-) r
+  (.-) s r = fmap (s -) r
   {-# INLINE (.-) #-}
 
   (-.) r s = fmap (\x -> x - s) r
@@ -194,10 +197,10 @@ instance
   (HasShape s, Divisive a) =>
   DivisiveAction (Array s a) a
   where
-  (./) s r = fmap (s/) r
+  (./) s r = fmap (s /) r
   {-# INLINE (./) #-}
 
-  (/.) r s = fmap (/s) r
+  (/.) r s = fmap (/ s) r
   {-# INLINE (/.) #-}
 
 instance (HasShape s, JoinSemiLattice a) => JoinSemiLattice (Array s a) where

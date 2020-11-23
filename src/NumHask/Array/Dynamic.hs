@@ -8,7 +8,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -50,12 +49,14 @@ module NumHask.Array.Dynamic
     squeeze,
 
     -- * Scalar
+
     --
     -- Scalar specialisations
     fromScalar,
     toScalar,
 
     -- * Matrix
+
     --
     -- Matrix specialisations.
     col,
@@ -90,8 +91,7 @@ import NumHask.Prelude as P hiding (product, transpose)
 --  [[13, 14, 15, 16],
 --   [17, 18, 19, 20],
 --   [21, 22, 23, 24]]]
-data Array a
-  = Array {shape :: [Int], unArray :: V.Vector a}
+data Array a = Array {shape :: [Int], unArray :: V.Vector a}
   deriving (Eq, Ord, NFData, Generic)
 
 instance Functor Array where

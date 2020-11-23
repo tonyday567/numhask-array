@@ -8,4 +8,3 @@ extra-deps:
   - protolude-0.3.0
   - random-1.2.0
   - splitmix-0.1.0.3
-
