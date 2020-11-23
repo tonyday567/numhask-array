@@ -1,8 +1,13 @@
-resolver: nightly-2020-06-25
+resolver: nightly-2020-11-19
 
 packages:
   - .
 
 extra-deps:
-  - numhask-0.6.0
+  # - numhask-0.7.0.0
+  - git: https://github.com/tonyday567/numhask.git
+    commit: e5b304fa4a6658e4bab01ce83e7065fe90e7033e
+  - protolude-0.3.0
+  - random-1.2.0
+  - splitmix-0.1.0.3
 

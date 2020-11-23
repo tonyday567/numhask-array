@@ -143,25 +143,57 @@ instance
       s = shapeVal (toShape @s)
       [n, m] = s
 
-type instance Actor (Array s a) = a
-
 -- (<.>) (Array a) (Array b) = H.sumElements $ H.liftMatrix2 (Prelude.*) a b
 
 instance
-  ( HasShape s,
-    Multiplicative a,
+  ( Subtractive a,
+    HasShape s,
     H.Container H.Vector a,
     Num a
   ) =>
-  MultiplicativeAction (Array s a)
+  Subtractive (Array s a)
   where
-  (.*) (Array r) s = Array $ H.cmap (* s) r
+  negate (Array x1) = Array $ H.cmap negate x1
+
+instance
+  (HasShape s, Multiplicative a, H.Container H.Vector a, Num a) =>
+  MultiplicativeAction (Array s a) a
+  where
+  (.*) s (Array r) = Array $ H.cmap (s *) r
   {-# INLINE (.*) #-}
 
-  (*.) s (Array r) = Array $ H.cmap (s *) r
+  (*.) (Array r) s = Array $ H.cmap (*s) r
   {-# INLINE (*.) #-}
 
-type instance Actor (Array s a) = a
+instance
+  (HasShape s, Additive a, H.Container H.Vector a, Num a) =>
+  AdditiveAction (Array s a) a
+  where
+  (.+) s (Array r) = Array $ H.cmap (s +) r
+  {-# INLINE (.+) #-}
+
+  (+.) (Array r) s = Array $ H.cmap (+s) r
+  {-# INLINE (+.) #-}
+
+instance
+  (HasShape s, Subtractive a, H.Container H.Vector a, Num a) =>
+  SubtractiveAction (Array s a) a
+  where
+  (.-) s (Array r) = Array $ H.cmap (s -) r
+  {-# INLINE (.-) #-}
+
+  (-.) (Array r) s = Array $ H.cmap (\x -> x - s) r
+  {-# INLINE (-.) #-}
+
+instance
+  (HasShape s, Divisive a, H.Container H.Vector a, Num a) =>
+  DivisiveAction (Array s a) a
+  where
+  (./) s (Array r) = Array $ H.cmap (s /) r
+  {-# INLINE (./) #-}
+
+  (/.) (Array r) s = Array $ H.cmap (/ s) r
+  {-# INLINE (/.) #-}
 
 -- | from flat list
 instance
