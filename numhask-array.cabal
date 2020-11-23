@@ -54,10 +54,8 @@ library
     distributive >=0.4 && <0.7,
     numhask >= 0.7 && <0.8,
     vector >=0.10 && <0.13,
-    hmatrix >= 0.18
   exposed-modules:
     NumHask.Array
-    NumHask.Array.HMatrix
     NumHask.Array.Fixed
     NumHask.Array.Dynamic
     NumHask.Array.Shape
