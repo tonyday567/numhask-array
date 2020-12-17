@@ -6,9 +6,10 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
@@ -182,8 +183,8 @@ transpose a = tabulate (reverse $ shape a) (index a . reverse)
 -- [[1, 0],
 --  [0, 1],
 --  [0, 0]]
-ident :: (Num a) => [Int] -> Array a
-ident ds = tabulate ds (bool 0 1 . isDiag)
+ident :: (Additive a, Multiplicative a) => [Int] -> Array a
+ident ds = tabulate ds (bool zero one . isDiag)
   where
     isDiag [] = True
     isDiag [_] = True

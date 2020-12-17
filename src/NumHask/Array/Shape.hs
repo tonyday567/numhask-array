@@ -4,13 +4,14 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wall #-}
 
@@ -166,7 +167,7 @@ checkIndexes :: [Int] -> Int -> Bool
 checkIndexes is n = all (`checkIndex` n) is
 
 type family CheckIndexes (i :: [Nat]) (n :: Nat) :: Bool where
-  CheckIndexes '[] n = 'True
+  CheckIndexes '[] _ = 'True
   CheckIndexes (i : is) n = CheckIndex i n && CheckIndexes is n
 
 -- | dimension i is the i'th dimension of a Shape
@@ -320,7 +321,7 @@ type family TakeIndexes (s :: [Nat]) (i :: [Nat]) where
     (s !! i) ': TakeIndexes s is
 
 type family (a :: [k]) !! (b :: Nat) :: k where
-  (!!) '[] i = L.TypeError ('Text "Index Underflow")
+  (!!) '[] _ = L.TypeError ('Text "Index Underflow")
   (!!) (x : _) 0 = x
   (!!) (_ : xs) i = (!!) xs (i - 1)
 
@@ -395,8 +396,8 @@ type family CheckReorder (ds :: [Nat]) (s :: [Nat]) where
       ~ 'True
 
 -- | remove 1's from a list
-squeeze' :: (Eq a, Num a) => [a] -> [a]
-squeeze' = filter (/= 1)
+squeeze' :: (Eq a, Multiplicative a) => [a] -> [a]
+squeeze' = filter (/= one)
 
 type family Squeeze (a :: [Nat]) where
   Squeeze '[] = '[]

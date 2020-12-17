@@ -7,11 +7,12 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
@@ -110,7 +111,7 @@ import NumHask.Prelude as P hiding (identity, transpose)
 --   [21, 22, 23, 24]]]
 --
 -- >>> [1,2,3] :: Array '[2,2] Int
--- [[*** Exception: NumHaskException {errorMessage = "shape mismatch"}
+-- *** Exception: NumHaskException {errorMessage = "shape mismatch"}
 newtype Array s a = Array {unArray :: V.Vector a} deriving (Eq, Ord, NFData, Functor, Foldable, Generic, Traversable)
 
 instance (HasShape s, Show a) => Show (Array s a) where
@@ -982,3 +983,4 @@ mmult (Array x) (Array y) = tabulate go
     n = fromIntegral $ natVal @n Proxy
     k = fromIntegral $ natVal @k Proxy
 {-# INLINE mmult #-}
+

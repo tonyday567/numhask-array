@@ -57,6 +57,8 @@ library
     -Wincomplete-record-updates
     -Wincomplete-uni-patterns
     -Wredundant-constraints
+    -fwrite-ide-info
+    -hiedir=.hie
   build-depends:
     base >=4.11 && <5,
     adjunctions >=4.0 && <5,
@@ -84,3 +86,11 @@ test-suite test
     numhask-array,
     numhask >=0.7 && <0.8,
   default-language: Haskell2010
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wredundant-constraints
+    -fwrite-ide-info
+    -hiedir=.hie
