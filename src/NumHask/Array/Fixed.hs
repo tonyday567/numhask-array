@@ -77,7 +77,6 @@ module NumHask.Array.Fixed
   )
 where
 
-import Control.Category (id)
 import Data.Distributive (Distributive (..))
 import Data.Functor.Rep
 import Data.List ((!!))
