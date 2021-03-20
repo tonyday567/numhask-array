@@ -43,6 +43,7 @@ module NumHask.Array.Dynamic
     append,
     reorder,
     expand,
+    apply,
     contract,
     dot,
     mult,
@@ -407,6 +408,30 @@ expand ::
 expand f a b = tabulate ((++) (shape a) (shape b)) (\i -> f (index a (take r i)) (index b (drop r i)))
   where
     r = rank (shape a)
+
+-- | Apply an array of functions to each array of values.
+--
+-- This is in the spirit of the applicative functor operation (<*>).
+--
+-- > expand f a b == apply (fmap f a) b
+--
+-- >>> apply ((*) <$> v) v
+-- [[1, 2, 3],
+--  [2, 4, 6],
+--  [3, 6, 9]]
+--
+-- >>> let b = fromFlatList [2,3] [1..6] :: Array Int
+-- >>> contract sum [1,2] (apply (fmap (*) b) (transpose b))
+-- [[14, 32],
+--  [32, 77]]
+--
+apply ::
+  Array (a -> b) ->
+  Array a ->
+  Array b
+apply f a = tabulate ((++) (shape f) (shape a)) (\i -> index f (take r i) (index a (drop r i)))
+  where
+    r = rank (shape f)
 
 -- | Contract an array by applying the supplied (folding) function on diagonal elements of the dimensions.
 --

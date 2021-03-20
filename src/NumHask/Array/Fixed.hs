@@ -44,6 +44,7 @@ module NumHask.Array.Fixed
     append,
     reorder,
     expand,
+    apply,
     contract,
     dot,
     mult,
@@ -86,7 +87,7 @@ import GHC.Show (Show (..))
 import GHC.TypeLits
 import qualified NumHask.Array.Dynamic as D
 import NumHask.Array.Shape
-import NumHask.Prelude as P hiding (identity, transpose)
+import NumHask.Prelude as P hiding (identity, transpose, toList)
 
 -- $setup
 -- >>> :set -XDataKinds
@@ -241,7 +242,7 @@ shape _ = shapeVal $ toShape @s
 
 -- | convert to a dynamic array with shape at the value level.
 toDynamic :: (HasShape s) => Array s a -> D.Array a
-toDynamic a = D.fromFlatList (shape a) (P.toList a)
+toDynamic a = D.fromFlatList (shape a) (toList a)
 
 -- | Use a dynamic array in a fixed context.
 --
@@ -630,6 +631,44 @@ expand ::
 expand f a b = tabulate (\i -> f (index a (take r i)) (index b (drop r i)))
   where
     r = rank (shape a)
+
+-- | Apply an array of functions to each array of values.
+--
+-- This is in the spirit of the applicative functor operation (<*>).
+--
+-- > expand f a b == apply (fmap f a) b
+--
+-- >>> apply ((*) <$> v) v
+-- [[1, 2, 3],
+--  [2, 4, 6],
+--  [3, 6, 9]]
+--
+-- Arrays can't be applicative functors in haskell because the changes in shape are reflected in the types.
+--
+-- > :t apply
+-- apply
+--   :: (HasShape s, HasShape s', HasShape (s ++ s')) =>
+--      Array s (a -> b) -> Array s' a -> Array (s ++ s') b
+-- > :t (<*>)
+-- (<*>) :: Applicative f => f (a -> b) -> f a -> f b
+--
+-- >>> let b = [1..6] :: Array '[2,3] Int
+-- >>> contract sum (Proxy :: Proxy '[1,2]) (apply (fmap (*) b) (transpose b))
+-- [[14, 32],
+--  [32, 77]]
+--
+apply ::
+  forall s s' a b.
+  ( HasShape s,
+    HasShape s',
+    HasShape ((++) s s')
+  ) =>
+  Array s (a -> b) ->
+  Array s' a ->
+  Array ((++) s s') b
+apply f a = tabulate (\i -> index f (take r i) (index a (drop r i)))
+  where
+    r = rank (shape f)
 
 -- | Contract an array by applying the supplied (folding) function on diagonal elements of the dimensions.
 --
