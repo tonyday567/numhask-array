@@ -16,6 +16,7 @@
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
+{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 
 -- | Arrays with a fixed shape.
 module NumHask.Array.Fixed
@@ -87,7 +88,8 @@ import GHC.Show (Show (..))
 import GHC.TypeLits
 import qualified NumHask.Array.Dynamic as D
 import NumHask.Array.Shape
-import NumHask.Prelude as P hiding (identity, transpose, toList)
+import NumHask.Prelude as P hiding (toList)
+import Data.Proxy
 
 -- $setup
 -- >>> :set -XDataKinds
@@ -112,7 +114,7 @@ import NumHask.Prelude as P hiding (identity, transpose, toList)
 --
 -- >>> [1,2,3] :: Array '[2,2] Int
 -- *** Exception: NumHaskException {errorMessage = "shape mismatch"}
-newtype Array s a = Array {unArray :: V.Vector a} deriving (Eq, Ord, NFData, Functor, Foldable, Generic, Traversable)
+newtype Array s a = Array {unArray :: V.Vector a} deriving (Eq, Ord, Functor, Foldable, Generic, Traversable)
 
 instance (HasShape s, Show a) => Show (Array s a) where
   show a = GHC.Show.show (toDynamic a)

@@ -1,6 +1,6 @@
 cabal-version: 2.4
 name:          numhask-array
-version:       0.8.0
+version:       0.9.0
 synopsis:
     Multi-dimensional array interface for numhask.
 description:
@@ -8,7 +8,6 @@ description:
     .
     == Usage
     .
-    >>> {-# LANGUAGE NegativeLiterals #-}
     >>> {-# LANGUAGE RebindableSyntax #-}
     >>> import NumHask.Prelude
     >>> import NumHask.Array
@@ -36,12 +35,11 @@ license:
 license-file:
   LICENSE
 tested-with:
-  GHC==8.10.1
+  GHC==8.10.1 GHC==9.0.1
 build-type:
   Simple
 extra-source-files:
   readme.md
-  stack.yaml
 source-repository head
   type:
     git
@@ -62,9 +60,8 @@ library
   build-depends:
     base >=4.11 && <5,
     adjunctions >=4.0 && <5,
-    deepseq >=1.4.2.0 && <2,
     distributive >=0.4 && <0.7,
-    numhask >= 0.7 && <0.8,
+    numhask >= 0.8 && <0.9,
     vector >=0.10 && <0.13,
   exposed-modules:
     NumHask.Array
@@ -82,9 +79,8 @@ test-suite test
   default-extensions:
   build-depends:
     base >=4.11 && <5,
-    doctest >=0.13 && <0.17,
-    numhask-array,
-    numhask >=0.7 && <0.8,
+    doctest >=0.13 && <0.19,
+    numhask-array
   default-language: Haskell2010
   ghc-options:
     -Wall

@@ -14,6 +14,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
+{-# OPTIONS_GHC -fno-warn-unused-top-binds #-}
 
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
@@ -75,10 +77,11 @@ module NumHask.Array.Shape
   )
 where
 
-import Data.List ((!!))
 import Data.Type.Bool
 import GHC.TypeLits as L
 import NumHask.Prelude as P hiding (Last, minimum)
+import Data.Proxy
+import Data.Type.Equality
 
 -- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
 -- Using [Int] as the index for an array nicely represents the practical interests and constraints downstream of this high-level API: densely-packed numbers (reals or integrals), indexed and layered.

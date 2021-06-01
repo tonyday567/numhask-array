@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -13,6 +12,7 @@
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
+{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 
 -- | Arrays with a dynamic shape.
 module NumHask.Array.Dynamic
@@ -67,11 +67,11 @@ module NumHask.Array.Dynamic
   )
 where
 
-import Data.List ((!!))
+import Data.List (intercalate)
 import qualified Data.Vector as V
 import GHC.Show (Show (..))
 import NumHask.Array.Shape
-import NumHask.Prelude as P hiding (product, transpose)
+import NumHask.Prelude as P hiding (product)
 
 -- $setup
 -- >>> :set -XDataKinds
@@ -94,7 +94,7 @@ import NumHask.Prelude as P hiding (product, transpose)
 --   [17, 18, 19, 20],
 --   [21, 22, 23, 24]]]
 data Array a = Array {shape :: [Int], unArray :: V.Vector a}
-  deriving (Eq, Ord, NFData, Generic)
+  deriving (Eq, Ord, Generic)
 
 instance Functor Array where
   fmap f (Array s a) = Array s (V.map f a)
@@ -111,7 +111,7 @@ instance (Show a) => Show (Array a) where
     where
       go n a'@(Array l' m) =
         case length l' of
-          0 -> maybe (throw (NumHaskException "empty scalar")) GHC.Show.show (head m)
+          0 -> GHC.Show.show (V.head m)
           1 -> "[" ++ intercalate ", " (GHC.Show.show <$> V.toList m) ++ "]"
           x ->
             "["
