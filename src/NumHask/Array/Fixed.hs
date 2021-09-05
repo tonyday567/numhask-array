@@ -15,11 +15,12 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 -- | Arrays with a fixed shape.
 module NumHask.Array.Fixed
-  ( -- $setup
+  ( -- $usage
     Array (..),
 
     -- * Conversion
@@ -37,6 +38,7 @@ module NumHask.Array.Fixed
     selectsExcept,
     folds,
     extracts,
+    extractsExcept,
     joins,
     maps,
     concatenate,
@@ -44,6 +46,7 @@ module NumHask.Array.Fixed
     append,
     reorder,
     expand,
+    apply,
     contract,
     dot,
     mult,
@@ -77,23 +80,44 @@ module NumHask.Array.Fixed
   )
 where
 
-import Control.Category (id)
 import Data.Distributive (Distributive (..))
 import Data.Functor.Rep
 import Data.List ((!!))
+import Data.Proxy
 import qualified Data.Vector as V
 import GHC.Exts (IsList (..))
 import GHC.Show (Show (..))
 import GHC.TypeLits
 import qualified NumHask.Array.Dynamic as D
 import NumHask.Array.Shape
-import NumHask.Prelude as P hiding (identity, transpose)
+import NumHask.Prelude as P hiding (toList)
 
 -- $setup
+--
 -- >>> :set -XDataKinds
 -- >>> :set -XOverloadedLists
 -- >>> :set -XTypeFamilies
 -- >>> :set -XFlexibleContexts
+-- >>> :set -XRebindableSyntax
+-- >>> import NumHask.Prelude
+-- >>> import GHC.TypeLits (Nat)
+-- >>> import Data.Proxy
+-- >>> import Data.Functor.Rep
+-- >>> let s = [1] :: Array ('[] :: [Nat]) Int -- scalar
+-- >>> let v = [1,2,3] :: Array '[3] Int       -- vector
+-- >>> let m = [0..11] :: Array '[3,4] Int     -- matrix
+-- >>> let a = [1..24] :: Array '[2,3,4] Int
+
+-- $usage
+--
+-- >>> :set -XDataKinds
+-- >>> :set -XOverloadedLists
+-- >>> :set -XTypeFamilies
+-- >>> :set -XFlexibleContexts
+-- >>> :set -XRebindableSyntax
+-- >>> import NumHask.Prelude
+-- >>> import NumHask.Array.Fixed
+-- >>> import GHC.TypeLits (Nat)
 -- >>> let s = [1] :: Array ('[] :: [Nat]) Int -- scalar
 -- >>> let v = [1,2,3] :: Array '[3] Int       -- vector
 -- >>> let m = [0..11] :: Array '[3,4] Int     -- matrix
@@ -101,8 +125,8 @@ import NumHask.Prelude as P hiding (identity, transpose)
 
 -- | a multidimensional array with a type-level shape
 --
--- >>> let a = [1..24] :: Array '[2,3,4] Int
--- >>> a
+-- >>> :set -XDataKinds
+-- >>> [1..24] :: Array '[2,3,4] Int
 -- [[[1, 2, 3, 4],
 --   [5, 6, 7, 8],
 --   [9, 10, 11, 12]],
@@ -112,7 +136,7 @@ import NumHask.Prelude as P hiding (identity, transpose)
 --
 -- >>> [1,2,3] :: Array '[2,2] Int
 -- *** Exception: NumHaskException {errorMessage = "shape mismatch"}
-newtype Array s a = Array {unArray :: V.Vector a} deriving (Eq, Ord, NFData, Functor, Foldable, Generic, Traversable)
+newtype Array s a = Array {unArray :: V.Vector a} deriving (Eq, Ord, Functor, Foldable, Generic, Traversable)
 
 instance (HasShape s, Show a) => Show (Array s a) where
   show a = GHC.Show.show (toDynamic a)
@@ -242,10 +266,11 @@ shape _ = shapeVal $ toShape @s
 
 -- | convert to a dynamic array with shape at the value level.
 toDynamic :: (HasShape s) => Array s a -> D.Array a
-toDynamic a = D.fromFlatList (shape a) (P.toList a)
+toDynamic a = D.fromFlatList (shape a) (toList a)
 
 -- | Use a dynamic array in a fixed context.
 --
+-- >>> import qualified NumHask.Array.Dynamic as D
 -- >>> with (D.fromFlatList [2,3,4] [1..24]) (selects (Proxy :: Proxy '[0,1]) [1,1] :: Array '[2,3,4] Int -> Array '[4] Int)
 -- [17, 18, 19, 20]
 with ::
@@ -632,6 +657,43 @@ expand f a b = tabulate (\i -> f (index a (take r i)) (index b (drop r i)))
   where
     r = rank (shape a)
 
+-- | Apply an array of functions to each array of values.
+--
+-- This is in the spirit of the applicative functor operation (<*>).
+--
+-- > expand f a b == apply (fmap f a) b
+--
+-- >>> apply ((*) <$> v) v
+-- [[1, 2, 3],
+--  [2, 4, 6],
+--  [3, 6, 9]]
+--
+-- Arrays can't be applicative functors in haskell because the changes in shape are reflected in the types.
+--
+-- > :t apply
+-- apply
+--   :: (HasShape s, HasShape s', HasShape (s ++ s')) =>
+--      Array s (a -> b) -> Array s' a -> Array (s ++ s') b
+-- > :t (<*>)
+-- (<*>) :: Applicative f => f (a -> b) -> f a -> f b
+--
+-- >>> let b = [1..6] :: Array '[2,3] Int
+-- >>> contract sum (Proxy :: Proxy '[1,2]) (apply (fmap (*) b) (transpose b))
+-- [[14, 32],
+--  [32, 77]]
+apply ::
+  forall s s' a b.
+  ( HasShape s,
+    HasShape s',
+    HasShape ((++) s s')
+  ) =>
+  Array s (a -> b) ->
+  Array s' a ->
+  Array ((++) s s') b
+apply f a = tabulate (\i -> index f (take r i) (index a (drop r i)))
+  where
+    r = rank (shape f)
+
 -- | Contract an array by applying the supplied (folding) function on diagonal elements of the dimensions.
 --
 -- This generalises a tensor contraction by allowing the number of contracting diagonals to be other than 2, and allowing a binary operator other than multiplication.
@@ -874,7 +936,7 @@ fromScalar a = index a ([] :: [Int])
 -- | Convert a number to a scalar.
 --
 -- >>> :t toScalar 2
--- toScalar 2 :: Num a => Array '[] a
+-- toScalar 2 :: FromInteger a => Array '[] a
 toScalar :: (HasShape ('[] :: [Nat])) => a -> Array ('[] :: [Nat]) a
 toScalar a = fromList [a]
 
@@ -983,4 +1045,3 @@ mmult (Array x) (Array y) = tabulate go
     n = fromIntegral $ natVal @n Proxy
     k = fromIntegral $ natVal @k Proxy
 {-# INLINE mmult #-}
-

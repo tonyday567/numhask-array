@@ -1,6 +1,4 @@
 cradle:
-  stack:
+  cabal:
     - path: "./src/"
-      component: "numhask-array:lib"
-    - path: "./test/"
-      component: "numhask-array:test"
+      component: "numhask-array:lib:numhask-array"

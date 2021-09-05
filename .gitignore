@@ -5,3 +5,5 @@ TAGS
 /dist-newstyle
 /stack.yaml.lock
 /.hie/
+/.ghc.environment.*
+/cabal.project.local

@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -12,15 +11,17 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
 -- | Arrays with a dynamic shape.
 module NumHask.Array.Dynamic
-  ( -- $setup
+  ( -- $usage
     Array (..),
 
     -- * Conversion
     fromFlatList,
+    toFlatList,
 
     -- * representable replacements
     index,
@@ -36,6 +37,7 @@ module NumHask.Array.Dynamic
     selectsExcept,
     folds,
     extracts,
+    extractsExcept,
     joins,
     maps,
     concatenate,
@@ -43,6 +45,7 @@ module NumHask.Array.Dynamic
     append,
     reorder,
     expand,
+    apply,
     contract,
     dot,
     mult,
@@ -66,17 +69,35 @@ module NumHask.Array.Dynamic
   )
 where
 
-import Data.List ((!!))
+import Data.List (intercalate)
 import qualified Data.Vector as V
 import GHC.Show (Show (..))
 import NumHask.Array.Shape
-import NumHask.Prelude as P hiding (product, transpose)
+import NumHask.Prelude as P hiding (product)
 
 -- $setup
 -- >>> :set -XDataKinds
 -- >>> :set -XOverloadedLists
 -- >>> :set -XTypeFamilies
 -- >>> :set -XFlexibleContexts
+-- >>> :set -XRebindableSyntax
+-- >>> import NumHask.Prelude
+-- >>> import NumHask.Array.Dynamic
+-- >>> import NumHask.Array.Shape
+-- >>> let s = fromFlatList [] [1] :: Array Int
+-- >>> let a = fromFlatList [2,3,4] [1..24] :: Array Int
+-- >>> let v = fromFlatList [3] [1,2,3] :: Array Int
+-- >>> let m = fromFlatList [3,4] [0..11] :: Array Int
+
+-- $usage
+-- >>> :set -XDataKinds
+-- >>> :set -XOverloadedLists
+-- >>> :set -XTypeFamilies
+-- >>> :set -XFlexibleContexts
+-- >>> :set -XRebindableSyntax
+-- >>> import NumHask.Prelude
+-- >>> import NumHask.Array.Dynamic
+-- >>> import NumHask.Array.Shape
 -- >>> let s = fromFlatList [] [1] :: Array Int
 -- >>> let a = fromFlatList [2,3,4] [1..24] :: Array Int
 -- >>> let v = fromFlatList [3] [1,2,3] :: Array Int
@@ -93,7 +114,7 @@ import NumHask.Prelude as P hiding (product, transpose)
 --   [17, 18, 19, 20],
 --   [21, 22, 23, 24]]]
 data Array a = Array {shape :: [Int], unArray :: V.Vector a}
-  deriving (Eq, Ord, NFData, Generic)
+  deriving (Eq, Ord, Generic)
 
 instance Functor Array where
   fmap f (Array s a) = Array s (V.map f a)
@@ -110,7 +131,7 @@ instance (Show a) => Show (Array a) where
     where
       go n a'@(Array l' m) =
         case length l' of
-          0 -> maybe (throw (NumHaskException "empty scalar")) GHC.Show.show (head m)
+          0 -> GHC.Show.show (V.head m)
           1 -> "[" ++ intercalate ", " (GHC.Show.show <$> V.toList m) ++ "]"
           x ->
             "["
@@ -408,6 +429,29 @@ expand f a b = tabulate ((++) (shape a) (shape b)) (\i -> f (index a (take r i))
   where
     r = rank (shape a)
 
+-- | Apply an array of functions to each array of values.
+--
+-- This is in the spirit of the applicative functor operation (<*>).
+--
+-- > expand f a b == apply (fmap f a) b
+--
+-- >>> apply ((*) <$> v) v
+-- [[1, 2, 3],
+--  [2, 4, 6],
+--  [3, 6, 9]]
+--
+-- >>> let b = fromFlatList [2,3] [1..6] :: Array Int
+-- >>> contract sum [1,2] (apply (fmap (*) b) (transpose b))
+-- [[14, 32],
+--  [32, 77]]
+apply ::
+  Array (a -> b) ->
+  Array a ->
+  Array b
+apply f a = tabulate ((++) (shape f) (shape a)) (\i -> index f (take r i) (index a (drop r i)))
+  where
+    r = rank (shape f)
+
 -- | Contract an array by applying the supplied (folding) function on diagonal elements of the dimensions.
 --
 -- This generalises a tensor contraction by allowing the number of contracting diagonals to be other than 2, and allowing a binary operator other than multiplication.
@@ -524,7 +568,7 @@ fromScalar a = index a ([] :: [Int])
 -- | Convert a number to a scalar.
 --
 -- >>> :t toScalar 2
--- toScalar 2 :: Num a => Array a
+-- toScalar 2 :: FromInteger a => Array a
 toScalar :: a -> Array a
 toScalar a = fromFlatList [] [a]
 
