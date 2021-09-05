@@ -42,7 +42,7 @@ tested-with:
 build-type:
   Simple
 extra-source-files:
-  readme.md
+  ChangeLog.md
 source-repository head
   type:
     git
