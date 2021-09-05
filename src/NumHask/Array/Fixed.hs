@@ -15,8 +15,8 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
+{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 -- | Arrays with a fixed shape.
 module NumHask.Array.Fixed
@@ -83,6 +83,7 @@ where
 import Data.Distributive (Distributive (..))
 import Data.Functor.Rep
 import Data.List ((!!))
+import Data.Proxy
 import qualified Data.Vector as V
 import GHC.Exts (IsList (..))
 import GHC.Show (Show (..))
@@ -90,7 +91,6 @@ import GHC.TypeLits
 import qualified NumHask.Array.Dynamic as D
 import NumHask.Array.Shape
 import NumHask.Prelude as P hiding (toList)
-import Data.Proxy
 
 -- $setup
 --
@@ -681,7 +681,6 @@ expand f a b = tabulate (\i -> f (index a (take r i)) (index b (drop r i)))
 -- >>> contract sum (Proxy :: Proxy '[1,2]) (apply (fmap (*) b) (transpose b))
 -- [[14, 32],
 --  [32, 77]]
---
 apply ::
   forall s s' a b.
   ( HasShape s,
@@ -1046,4 +1045,3 @@ mmult (Array x) (Array y) = tabulate go
     n = fromIntegral $ natVal @n Proxy
     k = fromIntegral $ natVal @k Proxy
 {-# INLINE mmult #-}
-

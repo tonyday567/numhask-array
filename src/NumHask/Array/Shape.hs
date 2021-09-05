@@ -77,11 +77,11 @@ module NumHask.Array.Shape
   )
 where
 
+import Data.Proxy
 import Data.Type.Bool
+import Data.Type.Equality
 import GHC.TypeLits as L
 import NumHask.Prelude as P hiding (Last, minimum)
-import Data.Proxy
-import Data.Type.Equality
 
 -- $setup
 -- >>> :set -XDataKinds

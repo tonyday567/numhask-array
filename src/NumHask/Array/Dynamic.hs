@@ -11,8 +11,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
+{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
 -- | Arrays with a dynamic shape.
 module NumHask.Array.Dynamic
@@ -444,7 +444,6 @@ expand f a b = tabulate ((++) (shape a) (shape b)) (\i -> f (index a (take r i))
 -- >>> contract sum [1,2] (apply (fmap (*) b) (transpose b))
 -- [[14, 32],
 --  [32, 77]]
---
 apply ::
   Array (a -> b) ->
   Array a ->
