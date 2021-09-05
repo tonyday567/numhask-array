@@ -83,6 +83,14 @@ import NumHask.Prelude as P hiding (Last, minimum)
 import Data.Proxy
 import Data.Type.Equality
 
+-- $setup
+-- >>> :set -XDataKinds
+-- >>> :set -XOverloadedLists
+-- >>> :set -XTypeFamilies
+-- >>> :set -XFlexibleContexts
+-- >>> :set -XRebindableSyntax
+-- >>> import NumHask.Prelude
+
 -- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
 -- Using [Int] as the index for an array nicely represents the practical interests and constraints downstream of this high-level API: densely-packed numbers (reals or integrals), indexed and layered.
 newtype Shape (s :: [Nat]) = Shape {shapeVal :: [Int]} deriving (Show)

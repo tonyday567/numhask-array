@@ -20,7 +20,7 @@
 
 -- | Arrays with a fixed shape.
 module NumHask.Array.Fixed
-  ( -- $setup
+  ( -- $usage
     Array (..),
 
     -- * Conversion
@@ -38,6 +38,7 @@ module NumHask.Array.Fixed
     selectsExcept,
     folds,
     extracts,
+    extractsExcept,
     joins,
     maps,
     concatenate,
@@ -92,10 +93,31 @@ import NumHask.Prelude as P hiding (toList)
 import Data.Proxy
 
 -- $setup
+--
 -- >>> :set -XDataKinds
 -- >>> :set -XOverloadedLists
 -- >>> :set -XTypeFamilies
 -- >>> :set -XFlexibleContexts
+-- >>> :set -XRebindableSyntax
+-- >>> import NumHask.Prelude
+-- >>> import GHC.TypeLits (Nat)
+-- >>> import Data.Proxy
+-- >>> import Data.Functor.Rep
+-- >>> let s = [1] :: Array ('[] :: [Nat]) Int -- scalar
+-- >>> let v = [1,2,3] :: Array '[3] Int       -- vector
+-- >>> let m = [0..11] :: Array '[3,4] Int     -- matrix
+-- >>> let a = [1..24] :: Array '[2,3,4] Int
+
+-- $usage
+--
+-- >>> :set -XDataKinds
+-- >>> :set -XOverloadedLists
+-- >>> :set -XTypeFamilies
+-- >>> :set -XFlexibleContexts
+-- >>> :set -XRebindableSyntax
+-- >>> import NumHask.Prelude
+-- >>> import NumHask.Array.Fixed
+-- >>> import GHC.TypeLits (Nat)
 -- >>> let s = [1] :: Array ('[] :: [Nat]) Int -- scalar
 -- >>> let v = [1,2,3] :: Array '[3] Int       -- vector
 -- >>> let m = [0..11] :: Array '[3,4] Int     -- matrix
@@ -103,8 +125,8 @@ import Data.Proxy
 
 -- | a multidimensional array with a type-level shape
 --
--- >>> let a = [1..24] :: Array '[2,3,4] Int
--- >>> a
+-- >>> :set -XDataKinds
+-- >>> [1..24] :: Array '[2,3,4] Int
 -- [[[1, 2, 3, 4],
 --   [5, 6, 7, 8],
 --   [9, 10, 11, 12]],
@@ -248,6 +270,7 @@ toDynamic a = D.fromFlatList (shape a) (toList a)
 
 -- | Use a dynamic array in a fixed context.
 --
+-- >>> import qualified NumHask.Array.Dynamic as D
 -- >>> with (D.fromFlatList [2,3,4] [1..24]) (selects (Proxy :: Proxy '[0,1]) [1,1] :: Array '[2,3,4] Int -> Array '[4] Int)
 -- [17, 18, 19, 20]
 with ::
@@ -914,7 +937,7 @@ fromScalar a = index a ([] :: [Int])
 -- | Convert a number to a scalar.
 --
 -- >>> :t toScalar 2
--- toScalar 2 :: Num a => Array '[] a
+-- toScalar 2 :: FromInteger a => Array '[] a
 toScalar :: (HasShape ('[] :: [Nat])) => a -> Array ('[] :: [Nat]) a
 toScalar a = fromList [a]
 

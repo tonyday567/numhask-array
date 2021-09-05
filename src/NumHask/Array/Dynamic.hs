@@ -16,11 +16,12 @@
 
 -- | Arrays with a dynamic shape.
 module NumHask.Array.Dynamic
-  ( -- $setup
+  ( -- $usage
     Array (..),
 
     -- * Conversion
     fromFlatList,
+    toFlatList,
 
     -- * representable replacements
     index,
@@ -36,6 +37,7 @@ module NumHask.Array.Dynamic
     selectsExcept,
     folds,
     extracts,
+    extractsExcept,
     joins,
     maps,
     concatenate,
@@ -78,6 +80,24 @@ import NumHask.Prelude as P hiding (product)
 -- >>> :set -XOverloadedLists
 -- >>> :set -XTypeFamilies
 -- >>> :set -XFlexibleContexts
+-- >>> :set -XRebindableSyntax
+-- >>> import NumHask.Prelude
+-- >>> import NumHask.Array.Dynamic
+-- >>> import NumHask.Array.Shape
+-- >>> let s = fromFlatList [] [1] :: Array Int
+-- >>> let a = fromFlatList [2,3,4] [1..24] :: Array Int
+-- >>> let v = fromFlatList [3] [1,2,3] :: Array Int
+-- >>> let m = fromFlatList [3,4] [0..11] :: Array Int
+
+-- $usage
+-- >>> :set -XDataKinds
+-- >>> :set -XOverloadedLists
+-- >>> :set -XTypeFamilies
+-- >>> :set -XFlexibleContexts
+-- >>> :set -XRebindableSyntax
+-- >>> import NumHask.Prelude
+-- >>> import NumHask.Array.Dynamic
+-- >>> import NumHask.Array.Shape
 -- >>> let s = fromFlatList [] [1] :: Array Int
 -- >>> let a = fromFlatList [2,3,4] [1..24] :: Array Int
 -- >>> let v = fromFlatList [3] [1,2,3] :: Array Int
@@ -549,7 +569,7 @@ fromScalar a = index a ([] :: [Int])
 -- | Convert a number to a scalar.
 --
 -- >>> :t toScalar 2
--- toScalar 2 :: Num a => Array a
+-- toScalar 2 :: FromInteger a => Array a
 toScalar :: a -> Array a
 toScalar a = fromFlatList [] [a]
 

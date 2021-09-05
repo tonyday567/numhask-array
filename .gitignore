@@ -6,3 +6,4 @@ TAGS
 /stack.yaml.lock
 /.hie/
 /.ghc.environment.*
+/cabal.project.local
