@@ -7,3 +7,4 @@ TAGS
 /.hie/
 /.ghc.environment.*
 /cabal.project.local
+/.hkgr/
