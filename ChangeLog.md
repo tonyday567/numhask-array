@@ -1,3 +1,7 @@
+0.9.2
+==
+* fixes for numhask-0.9
+
 0.9.1
 ===
 * GHC 9.0.1 support
