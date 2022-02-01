@@ -195,18 +195,12 @@ instance
   (.*) s r = fmap (s *) r
   {-# INLINE (.*) #-}
 
-  (*.) r s = fmap (* s) r
-  {-# INLINE (*.) #-}
-
 instance
   (HasShape s, Additive a) =>
   AdditiveAction (Array s a) a
   where
   (.+) s r = fmap (s +) r
   {-# INLINE (.+) #-}
-
-  (+.) r s = fmap (+ s) r
-  {-# INLINE (+.) #-}
 
 instance
   (HasShape s, Subtractive a) =>
@@ -215,18 +209,12 @@ instance
   (.-) s r = fmap (s -) r
   {-# INLINE (.-) #-}
 
-  (-.) r s = fmap (\x -> x - s) r
-  {-# INLINE (-.) #-}
-
 instance
   (HasShape s, Divisive a) =>
   DivisiveAction (Array s a) a
   where
   (./) s r = fmap (s /) r
   {-# INLINE (./) #-}
-
-  (/.) r s = fmap (/ s) r
-  {-# INLINE (/.) #-}
 
 instance (HasShape s, JoinSemiLattice a) => JoinSemiLattice (Array s a) where
   (\/) = liftR2 (\/)
@@ -236,8 +224,6 @@ instance (HasShape s, MeetSemiLattice a) => MeetSemiLattice (Array s a) where
 
 instance (HasShape s, Subtractive a, Epsilon a) => Epsilon (Array s a) where
   epsilon = singleton epsilon
-
-  nearZero (Array a) = all nearZero a
 
 instance
   ( HasShape s

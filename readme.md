@@ -2,7 +2,7 @@ numhask-array
 ===
 
 [![Hackage](https://img.shields.io/hackage/v/numhask-array.svg)](https://hackage.haskell.org/package/numhask-array)
-[![Build Status](https://github.com/tonyday567/numhask-array/workflows/haskell-ci/badge.svg)](https://github.com/tonyday567/numhask-array/actions?query=workflow%3Ahaskell-ci) [![Hackage Deps](https://img.shields.io/hackage-deps/v/numhask-array.svg)](http://packdeps.haskellers.com/reverse/numhask-array)
+[![Build Status](https://github.com/tonyday567/numhask-array/workflows/haskell-ci/badge.svg)](https://github.com/tonyday567/numhask-array/actions?query=workflow%3Ahaskell-ci)
 
 This package provides an interface into the numhask API, and both type and value level shape manipulation routines.
 
