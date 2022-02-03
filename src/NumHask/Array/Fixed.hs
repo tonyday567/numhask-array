@@ -222,7 +222,7 @@ instance (HasShape s, JoinSemiLattice a) => JoinSemiLattice (Array s a) where
 instance (HasShape s, MeetSemiLattice a) => MeetSemiLattice (Array s a) where
   (/\) = liftR2 (/\)
 
-instance (HasShape s, Subtractive a, Epsilon a) => Epsilon (Array s a) where
+instance (HasShape s, Subtractive a, Epsilon a, Ord a) => Epsilon (Array s a) where
   epsilon = singleton epsilon
 
 instance

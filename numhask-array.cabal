@@ -45,7 +45,7 @@ library
     , adjunctions   >=4.0  && <5
     , base          >=4.11 && <5
     , distributive  >=0.4  && <0.7
-    , numhask       ^>=0.9
+    , numhask       ^>=0.10
     , vector        >=0.10 && <0.13
 
   exposed-modules:
