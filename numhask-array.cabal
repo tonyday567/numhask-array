@@ -47,11 +47,13 @@ library
     , distributive  >=0.4  && <0.7
     , numhask       ^>=0.10
     , vector        >=0.10 && <0.13
+    , mealy
 
   exposed-modules:
     NumHask.Array
     NumHask.Array.Dynamic
     NumHask.Array.Fixed
     NumHask.Array.Shape
+    NumHask.Array.Algorithms
 
   default-language:   Haskell2010

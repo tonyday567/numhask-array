@@ -17,6 +17,7 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 -- | Arrays with a fixed shape.
 module NumHask.Array.Fixed
@@ -945,6 +946,87 @@ instance
 
   one = ident
 
+instance
+  ( Multiplicative a,
+    P.Distributive a,
+    Subtractive a,
+    Eq a,
+    ExpField a,
+    KnownNat m,
+    HasShape '[m, m]
+  ) =>
+  Divisive (Matrix m m a)
+  where
+    recip = inversion
+
+inversion :: (Eq a, KnownNat n, ExpField a) => Array '[n,n] a -> Array '[n,n] a
+inversion a = invt (transpose (chol a)) * invt (chol a)
+
+-- | Expand the array to form a diagonal array
+--
+-- >>> undiag ([1,1,1] :: Array '[3] Int)
+--
+undiag ::
+  forall a s.
+  ( HasShape s,
+    Additive a,
+    HasShape ((++) s s)
+  ) =>
+  Array s a ->
+  Array ((++) s s) a
+undiag a = tabulate go
+  where
+    go [] = throw (NumHaskException "Rank Underflow")
+    go xs@(x:xs') = bool zero (index a xs) (all (x==) xs')
+
+-- | cholesky decomposition
+--
+-- > t ==  dot sum (+) (chol t) (transpose (chol t))
+chol :: (KnownNat n, ExpField a) => Array '[n,n] a -> Array '[n,n] a
+chol a =
+  let l =
+        tabulate (\[i,j] ->
+                    bool
+                    (one/index l [j,j] *
+                     (index a [i,j] -
+                      sum ((\k -> index l [i,k] * index l [j,k]) <$>
+                           ([zero..(j - one)]::[Int]))))
+                    (sqrt (index a [i,i] -
+                        sum ((\k -> index l [j,k] ^ 2) <$>
+                             ([zero..(j - one)]::[Int])))) (i==j))
+  in l
+
+-- | inverse of a triangular matrix
+--
+-- > ident == dot sum (+) t (invu t)
+invt :: forall a n. (KnownNat n, ExpField a, Eq a) => Array '[n,n] a -> Array '[n,n] a
+invt a = sum ((^) (-(ti * tu)) <$> ([0..(n-1)]::[Int])) * ti
+  where
+    d = undiag (diag a)
+    ti = fmap (\x -> bool (one/x) zero (x==zero)) d
+    tu = a - d
+    n = fromIntegral $ natVal @n Proxy
+
+mpower ::
+  (KnownNat s, Subtractive a, P.Distributive a, P.Ord b, Divisive a, Subtractive b, Integral b) =>
+  Array '[s,s] a ->
+  b ->
+  Array '[s,s] a
+mpower x0 y0 =
+  case compare y0 zero of
+    EQ -> ident
+    GT -> f x0 y0
+    LT -> error "NYI"
+  where
+    f x y
+      | even y = f (mmult x x) (y `quot` two)
+      | y P.== one = x
+      | P.otherwise = g (mmult x x) (y `quot` two) x
+    g x y z
+      | even y = g (mmult x x) (y `quot` two) z
+      | y P.== one = mmult x z
+      | P.otherwise = g (mmult x x) (y `quot` two) (x * z)
+
 -- | Extract specialised to a matrix.
 --
 -- >>> row 1 m
@@ -1031,3 +1113,4 @@ mmult (Array x) (Array y) = tabulate go
     n = fromIntegral $ natVal @n Proxy
     k = fromIntegral $ natVal @k Proxy
 {-# INLINE mmult #-}
+

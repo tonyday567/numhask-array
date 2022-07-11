@@ -9,11 +9,13 @@ module NumHask.Array
     -- $overview
     module NumHask.Array.Shape,
     module NumHask.Array.Fixed,
+    module NumHask.Array.Algorithms,
   )
 where
 
 import NumHask.Array.Fixed
 import NumHask.Array.Shape
+import NumHask.Array.Algorithms
 
 -- $imports
 --
