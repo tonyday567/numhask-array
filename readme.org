@@ -44,10 +44,50 @@ putStrLn "ok"
 #+end_src
 
 #+RESULTS:
-: [4 of 5] Compiling NumHask.Array.Algorithms ( src/NumHask/Array/Algorithms.hs, interpreted )
-: [5 of 5] Compiling NumHask.Array    ( src/NumHask/Array.hs, interpreted ) [flags changed]
-: Ok, five modules loaded.
-: >  >  >  >  >  >  >  >  >  >  >  >  >  > ok
+#+begin_example
+Build profile: -w ghc-8.10.7 -O1
+In order, the following will be built (use -v for more details):
+ - numhask-array-0.10.0 (lib) (file src/NumHask/Array/Algorithms.hs changed)
+Preprocessing library for numhask-array-0.10.0..
+GHCi, version 8.10.7: https://www.haskell.org/ghc/  :? for help
+Loaded GHCi configuration from /Users/tonyday/haskell/numhask-array/.ghci
+[1 of 5] Compiling NumHask.Array.Shape ( src/NumHask/Array/Shape.hs, interpreted )
+[2 of 5] Compiling NumHask.Array.Dynamic ( src/NumHask/Array/Dynamic.hs, interpreted )
+[3 of 5] Compiling NumHask.Array.Fixed ( src/NumHask/Array/Fixed.hs, interpreted )
+[4 of 5] Compiling NumHask.Array.Algorithms ( src/NumHask/Array/Algorithms.hs, interpreted )
+[5 of 5] Compiling NumHask.Array    ( src/NumHask/Array.hs, interpreted )
+Ok, five modules loaded.
+,*NumHask.Array> Ok, five modules loaded.
+>  >  >  >  >  >  >  >  >  >  >  >  >  > ok
+#+end_example
+
+#+begin_src haskell
+t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
+c = chol t
+ti = undiag (fmap recip (diag c))
+tu = c - undiag (diag c)
+l = (-(ti * tu))
+#+end_src
+
+
+
+#+begin_src haskell
+t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
+t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
+t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
+#+end_src
+
+#+begin_src haskell
+t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
+inversion t
+t `mmult` inversion t
+#+end_src
+
+#+RESULTS:
+|      1.0000000000000284 | 1.7763568394002505e-15 |  -8.881784197001252e-16 |
+|  1.4210854715202004e-14 |     1.0000000000000284 | -2.6645352591003757e-15 |
+| -5.6843418860808015e-14 | -7.105427357601002e-15 |      1.0000000000000018 |
+
 
 ** triangular matrix
 

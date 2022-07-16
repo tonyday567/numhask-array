@@ -47,6 +47,7 @@ module NumHask.Array.Fixed
     append,
     reorder,
     expand,
+    expand',
     apply,
     contract,
     dot,
@@ -78,6 +79,7 @@ module NumHask.Array.Fixed
     safeCol,
     safeRow,
     mmult,
+    chol,
   )
 where
 
@@ -644,6 +646,21 @@ expand f a b = tabulate (\i -> f (index a (take r i)) (index b (drop r i)))
   where
     r = rank (shape a)
 
+expand' ::
+  forall s s' a b c.
+  ( HasShape s,
+    HasShape s',
+    HasShape ((++) s s')
+  ) =>
+  (a -> b -> c) ->
+  Array s a ->
+  Array s' b ->
+  Array ((++) s s') c
+expand' f a b = tabulate (\i -> f (index a (drop r i)) (index b (take r i)))
+  where
+    r = rank (shape a)
+
+
 -- | Apply an array of functions to each array of values.
 --
 -- This is in the spirit of the applicative functor operation (<*>).
@@ -1002,30 +1019,9 @@ chol a =
 invt :: forall a n. (KnownNat n, ExpField a, Eq a) => Array '[n,n] a -> Array '[n,n] a
 invt a = sum ((^) (-(ti * tu)) <$> ([0..(n-1)]::[Int])) * ti
   where
-    d = undiag (diag a)
-    ti = fmap (\x -> bool (one/x) zero (x==zero)) d
-    tu = a - d
+    ti = undiag (fmap recip (diag a))
+    tu = a - undiag (diag a)
     n = fromIntegral $ natVal @n Proxy
-
-mpower ::
-  (KnownNat s, Subtractive a, P.Distributive a, P.Ord b, Divisive a, Subtractive b, Integral b) =>
-  Array '[s,s] a ->
-  b ->
-  Array '[s,s] a
-mpower x0 y0 =
-  case compare y0 zero of
-    EQ -> ident
-    GT -> f x0 y0
-    LT -> error "NYI"
-  where
-    f x y
-      | even y = f (mmult x x) (y `quot` two)
-      | y P.== one = x
-      | P.otherwise = g (mmult x x) (y `quot` two) x
-    g x y z
-      | even y = g (mmult x x) (y `quot` two) z
-      | y P.== one = mmult x z
-      | P.otherwise = g (mmult x x) (y `quot` two) (x * z)
 
 -- | Extract specialised to a matrix.
 --
