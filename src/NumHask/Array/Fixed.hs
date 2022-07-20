@@ -328,7 +328,7 @@ ident = tabulate (bool zero one . isDiag)
 
 -- | A sequential array of Ints
 --
--- >>> sequence :: Array '[3] Int
+-- >>> sequent :: Array '[3] Int
 -- [0, 1, 2]
 sequent :: forall s. (HasShape s) => Array s Int
 sequent = tabulate go
@@ -1015,7 +1015,9 @@ invtri a = sum (fmap (l ^) (sequentv :: Vector n Int)) * ti
 
 -- | Expand the array to form a diagonal array
 --
--- >>> undiag ([1,1,1] :: Array '[3] Int)
+-- >>> undiag ([1,1] :: Array '[2] Int)
+-- [[1, 0],
+--  [0, 1]]
 undiag ::
   forall a s.
   ( HasShape s,
