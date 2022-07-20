@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -30,10 +31,13 @@ module NumHask.Array.Fixed
     toDynamic,
 
     -- * Operators
+    takes,
     reshape,
     transpose,
     diag,
+    undiag,
     ident,
+    sequent,
     singleton,
     selects,
     selectsExcept,
@@ -68,6 +72,7 @@ module NumHask.Array.Fixed
     --
     -- Vector specialisations.
     Vector,
+    sequentv,
 
     -- * Matrix
 
@@ -80,6 +85,8 @@ module NumHask.Array.Fixed
     safeRow,
     mmult,
     chol,
+    inv,
+    invtri,
   )
 where
 
@@ -93,7 +100,7 @@ import GHC.Show (Show (..))
 import GHC.TypeLits
 import qualified NumHask.Array.Dynamic as D
 import NumHask.Array.Shape
-import NumHask.Prelude as P hiding (toList)
+import NumHask.Prelude as P hiding (sequence, toList)
 
 -- $setup
 --
@@ -318,6 +325,17 @@ ident = tabulate (bool zero one . isDiag)
     isDiag [_] = True
     isDiag [x, y] = x == y
     isDiag (x : y : xs) = x == y && isDiag (y : xs)
+
+-- | A sequential array of Ints
+--
+-- >>> sequence :: Array '[3] Int
+-- [0, 1, 2]
+sequent :: forall s. (HasShape s) => Array s Int
+sequent = tabulate go
+  where
+    go [] = zero
+    go [i] = i
+    go (i:j:_) = bool zero i (i==j)
 
 -- | Extract the diagonal of an array.
 --
@@ -660,7 +678,6 @@ expand' f a b = tabulate (\i -> f (index a (drop r i)) (index b (take r i)))
   where
     r = rank (shape a)
 
-
 -- | Apply an array of functions to each array of values.
 --
 -- This is in the spirit of the applicative functor operation (<*>).
@@ -876,6 +893,15 @@ slice pss a = tabulate go
     go s = index a (zipWith (!!) pss' s)
     pss' = natValss pss
 
+takes ::
+  forall s s' a.
+  ( HasShape s,
+    HasShape s'
+  ) =>
+  Array s a ->
+  Array s' a
+takes a = tabulate $ \s -> index a s
+
 -- | Remove single dimensions.
 --
 -- >>> let a = [1..24] :: Array '[2,1,3,4,1] Int
@@ -947,6 +973,9 @@ toScalar a = fromList [a]
 -- | <https://en.wikipedia.org/wiki/Vector_(mathematics_and_physics) Wiki Vector>
 type Vector s a = Array '[s] a
 
+sequentv :: forall n. (KnownNat n) => Vector n Int
+sequentv = sequent
+
 -- | <https://en.wikipedia.org/wiki/Matrix_(mathematics) Wiki Matrix>
 type Matrix m n a = Array '[m, n] a
 
@@ -974,10 +1003,16 @@ instance
   ) =>
   Divisive (Matrix m m a)
   where
-    recip = inversion
+    recip a = invtri (transpose (chol a)) * invtri (chol a)
 
-inversion :: (Eq a, KnownNat n, ExpField a) => Array '[n,n] a -> Array '[n,n] a
-inversion a = invt (transpose (chol a)) * invt (chol a)
+-- | inverse of a triangular matrix
+--
+invtri :: forall a n. (KnownNat n, ExpField a, Eq a) => Array '[n,n] a -> Array '[n,n] a
+invtri a = sum (fmap (l^) (sequentv :: Vector n Int)) * ti
+  where
+    ti = undiag (fmap recip (diag a))
+    tl = a - undiag (diag a)
+    l = negate (ti * tl)
 
 -- | Expand the array to form a diagonal array
 --
@@ -996,9 +1031,9 @@ undiag a = tabulate go
     go [] = throw (NumHaskException "Rank Underflow")
     go xs@(x:xs') = bool zero (index a xs) (all (x==) xs')
 
+
 -- | cholesky decomposition
 --
--- > t ==  dot sum (+) (chol t) (transpose (chol t))
 chol :: (KnownNat n, ExpField a) => Array '[n,n] a -> Array '[n,n] a
 chol a =
   let l =
@@ -1012,16 +1047,6 @@ chol a =
                         sum ((\k -> index l [j,k] ^ 2) <$>
                              ([zero..(j - one)]::[Int])))) (i==j))
   in l
-
--- | inverse of a triangular matrix
---
--- > ident == dot sum (+) t (invu t)
-invt :: forall a n. (KnownNat n, ExpField a, Eq a) => Array '[n,n] a -> Array '[n,n] a
-invt a = sum ((^) (-(ti * tu)) <$> ([0..(n-1)]::[Int])) * ti
-  where
-    ti = undiag (fmap recip (diag a))
-    tu = a - undiag (diag a)
-    n = fromIntegral $ natVal @n Proxy
 
 -- | Extract specialised to a matrix.
 --

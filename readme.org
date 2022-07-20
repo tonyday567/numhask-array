@@ -45,29 +45,76 @@ putStrLn "ok"
 
 #+RESULTS:
 #+begin_example
-Build profile: -w ghc-8.10.7 -O1
-In order, the following will be built (use -v for more details):
- - numhask-array-0.10.0 (lib) (file src/NumHask/Array/Algorithms.hs changed)
-Preprocessing library for numhask-array-0.10.0..
-GHCi, version 8.10.7: https://www.haskell.org/ghc/  :? for help
-Loaded GHCi configuration from /Users/tonyday/haskell/numhask-array/.ghci
-[1 of 5] Compiling NumHask.Array.Shape ( src/NumHask/Array/Shape.hs, interpreted )
-[2 of 5] Compiling NumHask.Array.Dynamic ( src/NumHask/Array/Dynamic.hs, interpreted )
 [3 of 5] Compiling NumHask.Array.Fixed ( src/NumHask/Array/Fixed.hs, interpreted )
-[4 of 5] Compiling NumHask.Array.Algorithms ( src/NumHask/Array/Algorithms.hs, interpreted )
-[5 of 5] Compiling NumHask.Array    ( src/NumHask/Array.hs, interpreted )
-Ok, five modules loaded.
-,*NumHask.Array> Ok, five modules loaded.
->  >  >  >  >  >  >  >  >  >  >  >  >  > ok
+[4 of 5] Compiling NumHask.Array.Algorithms ( src/NumHask/Array/Algorithms.hs, interpreted ) [flags changed]
+
+src/NumHask/Array/Algorithms.hs:96:32: error:
+    Ambiguous occurrence ‘chol’
+    It could refer to
+       either ‘NumHask.Array.Fixed.chol’,
+              imported from ‘NumHask.Array.Fixed’ at src/NumHask/Array/Algorithms.hs:36:1-40
+              (and originally defined at src/NumHask/Array/Fixed.hs:1003:1-4)
+           or ‘NumHask.Array.Algorithms.chol’,
+              defined at src/NumHask/Array/Algorithms.hs:50:1
+   |
+96 | inversion a = invt (transpose (chol a)) `mmult` invt (chol a)
+   |                                ^^^^
+
+src/NumHask/Array/Algorithms.hs:96:55: error:
+    Ambiguous occurrence ‘chol’
+    It could refer to
+       either ‘NumHask.Array.Fixed.chol’,
+              imported from ‘NumHask.Array.Fixed’ at src/NumHask/Array/Algorithms.hs:36:1-40
+              (and originally defined at src/NumHask/Array/Fixed.hs:1003:1-4)
+           or ‘NumHask.Array.Algorithms.chol’,
+              defined at src/NumHask/Array/Algorithms.hs:50:1
+   |
+96 | inversion a = invt (transpose (chol a)) `mmult` invt (chol a)
+   |                                                       ^^^^
+
+src/NumHask/Array/Algorithms.hs:139:11: error:
+    Ambiguous occurrence ‘chol’
+    It could refer to
+       either ‘NumHask.Array.Fixed.chol’,
+              imported from ‘NumHask.Array.Fixed’ at src/NumHask/Array/Algorithms.hs:36:1-40
+              (and originally defined at src/NumHask/Array/Fixed.hs:1003:1-4)
+           or ‘NumHask.Array.Algorithms.chol’,
+              defined at src/NumHask/Array/Algorithms.hs:50:1
+    |
+139 |   print $ chol t
+    |           ^^^^
+Failed, three modules loaded.
+>  >  >  >  >  >  >  >  >  >  >  >  >
+<no location info>: error:
+    Could not load module ‘NumHask.Array.Algorithms’
+    It is a member of the hidden package ‘numhask-array-0.10.0’.
+    Perhaps you need to add ‘numhask-array’ to the build-depends in your .cabal file.
+ok
 #+end_example
 
 #+begin_src haskell
 t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
 c = chol t
 ti = undiag (fmap recip (diag c))
-tu = c - undiag (diag c)
-l = (-(ti * tu))
+tl = c - undiag (diag c)
+l = negate (ti * tl)
+v = [0..3] :: Array '[3] Int
+:t fmap (l^) v
 #+end_src
+
+#+RESULTS:
+#+begin_example
+<interactive>:23:8: error:
+    • Variable not in scope: ti
+    • Perhaps you meant one of these:
+        ‘t’ (line 19), ‘pi’ (imported from NumHask.Prelude),
+        ‘to’ (imported from NumHask.Prelude)
+
+<interactive>:23:13: error:
+    • Variable not in scope: tu
+    • Perhaps you meant one of these:
+        ‘t’ (line 19), ‘to’ (imported from NumHask.Prelude)
+#+end_example
 
 
 
