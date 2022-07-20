@@ -1,6 +1,6 @@
 cabal-version:      2.4
 name:               numhask-array
-version:            0.10.0
+version:            0.10.1
 synopsis:           Multi-dimensional arrays.
 description:
   This package provides an interface into the [numhask](https://hackage.haskell.org/package/numhask) API, and both type- and value-level shape manipulation routines.
