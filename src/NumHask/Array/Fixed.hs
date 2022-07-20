@@ -1,11 +1,11 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RebindableSyntax #-}
@@ -15,10 +15,10 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE NoStarIsType #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
-{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 -- | Arrays with a fixed shape.
 module NumHask.Array.Fixed
@@ -335,7 +335,7 @@ sequent = tabulate go
   where
     go [] = zero
     go [i] = i
-    go (i:j:_) = bool zero i (i==j)
+    go (i : j : _) = bool zero i (i == j)
 
 -- | Extract the diagonal of an array.
 --
@@ -1003,12 +1003,11 @@ instance
   ) =>
   Divisive (Matrix m m a)
   where
-    recip a = invtri (transpose (chol a)) * invtri (chol a)
+  recip a = invtri (transpose (chol a)) * invtri (chol a)
 
 -- | inverse of a triangular matrix
---
-invtri :: forall a n. (KnownNat n, ExpField a, Eq a) => Array '[n,n] a -> Array '[n,n] a
-invtri a = sum (fmap (l^) (sequentv :: Vector n Int)) * ti
+invtri :: forall a n. (KnownNat n, ExpField a, Eq a) => Array '[n, n] a -> Array '[n, n] a
+invtri a = sum (fmap (l ^) (sequentv :: Vector n Int)) * ti
   where
     ti = undiag (fmap recip (diag a))
     tl = a - undiag (diag a)
@@ -1017,7 +1016,6 @@ invtri a = sum (fmap (l^) (sequentv :: Vector n Int)) * ti
 -- | Expand the array to form a diagonal array
 --
 -- >>> undiag ([1,1,1] :: Array '[3] Int)
---
 undiag ::
   forall a s.
   ( HasShape s,
@@ -1029,24 +1027,35 @@ undiag ::
 undiag a = tabulate go
   where
     go [] = throw (NumHaskException "Rank Underflow")
-    go xs@(x:xs') = bool zero (index a xs) (all (x==) xs')
-
+    go xs@(x : xs') = bool zero (index a xs) (all (x ==) xs')
 
 -- | cholesky decomposition
---
-chol :: (KnownNat n, ExpField a) => Array '[n,n] a -> Array '[n,n] a
+chol :: (KnownNat n, ExpField a) => Array '[n, n] a -> Array '[n, n] a
 chol a =
   let l =
-        tabulate (\[i,j] ->
-                    bool
-                    (one/index l [j,j] *
-                     (index a [i,j] -
-                      sum ((\k -> index l [i,k] * index l [j,k]) <$>
-                           ([zero..(j - one)]::[Int]))))
-                    (sqrt (index a [i,i] -
-                        sum ((\k -> index l [j,k] ^ 2) <$>
-                             ([zero..(j - one)]::[Int])))) (i==j))
-  in l
+        tabulate
+          ( \[i, j] ->
+              bool
+                ( one
+                    / index l [j, j]
+                    * ( index a [i, j]
+                          - sum
+                            ( (\k -> index l [i, k] * index l [j, k])
+                                <$> ([zero .. (j - one)] :: [Int])
+                            )
+                      )
+                )
+                ( sqrt
+                    ( index a [i, i]
+                        - sum
+                          ( (\k -> index l [j, k] ^ 2)
+                              <$> ([zero .. (j - one)] :: [Int])
+                          )
+                    )
+                )
+                (i == j)
+          )
+   in l
 
 -- | Extract specialised to a matrix.
 --
@@ -1134,4 +1143,3 @@ mmult (Array x) (Array y) = tabulate go
     n = fromIntegral $ natVal @n Proxy
     k = fromIntegral $ natVal @k Proxy
 {-# INLINE mmult #-}
-
