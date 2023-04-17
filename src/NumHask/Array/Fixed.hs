@@ -63,7 +63,6 @@ module NumHask.Array.Fixed
 
     --
     -- Scalar specialisations
-    Scalar,
     fromScalar,
     toScalar,
 
@@ -200,31 +199,28 @@ instance
 
 instance
   (HasShape s, Multiplicative a) =>
-  MultiplicativeAction (Array s a) a
+  MultiplicativeAction (Array s a)
   where
-  (.*) s r = fmap (s *) r
-  {-# INLINE (.*) #-}
+    type Scalar (Array s a) = a
+    (.*) s r = fmap (s *) r
 
 instance
-  (HasShape s, Additive a) =>
-  AdditiveAction (Array s a) a
+  (HasShape s, Additive a) => AdditiveAction (Array s a)
   where
-  (.+) s r = fmap (s +) r
-  {-# INLINE (.+) #-}
+    type AdditiveScalar (Array s a) = a
+    (.+) s r = fmap (s +) r
 
 instance
   (HasShape s, Subtractive a) =>
-  SubtractiveAction (Array s a) a
+  SubtractiveAction (Array s a)
   where
   (.-) s r = fmap (s -) r
-  {-# INLINE (.-) #-}
 
 instance
   (HasShape s, Divisive a) =>
-  DivisiveAction (Array s a) a
+  DivisiveAction (Array s a)
   where
   (./) s r = fmap (s /) r
-  {-# INLINE (./) #-}
 
 instance (HasShape s, JoinSemiLattice a) => JoinSemiLattice (Array s a) where
   (\/) = liftR2 (\/)
@@ -949,11 +945,6 @@ squeeze (Array x) = Array x
 
 -- $scalar
 -- Scalar specialisations
-
--- | <https://en.wikipedia.org/wiki/Scalarr_(mathematics) Wiki Scalar>
---
--- An Array '[] a despite being a Scalar is never-the-less a one-element vector under the hood. Unification of representation is unexplored.
-type Scalar a = Array ('[] :: [Nat]) a
 
 -- | Unwrapping scalars is probably a performance bottleneck.
 --
