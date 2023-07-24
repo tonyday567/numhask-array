@@ -202,25 +202,25 @@ instance
   MultiplicativeAction (Array s a)
   where
     type Scalar (Array s a) = a
-    (.*) s r = fmap (s *) r
+    (*.) r s = fmap (s *) r
 
 instance
   (HasShape s, Additive a) => AdditiveAction (Array s a)
   where
     type AdditiveScalar (Array s a) = a
-    (.+) s r = fmap (s +) r
+    (+.) r s = fmap (s +) r
 
 instance
   (HasShape s, Subtractive a) =>
   SubtractiveAction (Array s a)
   where
-  (.-) s r = fmap (s -) r
+  (-.) r s = fmap (\x -> x - s) r
 
 instance
   (HasShape s, Divisive a) =>
   DivisiveAction (Array s a)
   where
-  (./) s r = fmap (s /) r
+  (/.) r s = fmap (/s) r
 
 instance (HasShape s, JoinSemiLattice a) => JoinSemiLattice (Array s a) where
   (\/) = liftR2 (\/)
@@ -432,7 +432,7 @@ folds f d a = tabulate go
 --
 -- >>> let e = extracts (Proxy :: Proxy '[1,2]) a
 -- >>> :t e
--- e :: Array '[3, 4] (Array '[2] Int)
+-- e :: Array [3, 4] (Array '[2] Int)
 extracts ::
   forall ds st si so a.
   ( HasShape st,
@@ -453,7 +453,7 @@ extracts d a = tabulate go
 --
 -- >>> let e = extractsExcept (Proxy :: Proxy '[1,2]) a
 -- >>> :t e
--- e :: Array '[2] (Array '[3, 4] Int)
+-- e :: Array '[2] (Array [3, 4] Int)
 extractsExcept ::
   forall ds st si so a.
   ( HasShape st,
@@ -475,12 +475,12 @@ extractsExcept d a = tabulate go
 -- >>> let e = extracts (Proxy :: Proxy '[1,0]) a
 --
 -- >>> :t e
--- e :: Array '[3, 2] (Array '[4] Int)
+-- e :: Array [3, 2] (Array '[4] Int)
 --
 -- >>> let j = joins (Proxy :: Proxy '[1,0]) e
 --
 -- >>> :t j
--- j :: Array '[2, 3, 4] Int
+-- j :: Array [2, 3, 4] Int
 --
 -- >>> a == j
 -- True
@@ -503,7 +503,7 @@ joins _ a = tabulate go
 -- | Maps a function along specified dimensions.
 --
 -- >>> :t maps (transpose) (Proxy :: Proxy '[1]) a
--- maps (transpose) (Proxy :: Proxy '[1]) a :: Array '[4, 3, 2] Int
+-- maps (transpose) (Proxy :: Proxy '[1]) a :: Array [4, 3, 2] Int
 maps ::
   forall ds st st' si si' so a b.
   ( HasShape st,
@@ -526,7 +526,7 @@ maps f d a = joins d (fmapRep f (extracts d a))
 -- | Concatenate along a dimension.
 --
 -- >>> :t concatenate (Proxy :: Proxy 1) a a
--- concatenate (Proxy :: Proxy 1) a a :: Array '[2, 6, 4] Int
+-- concatenate (Proxy :: Proxy 1) a a :: Array [2, 6, 4] Int
 concatenate ::
   forall a s0 s1 d s.
   ( CheckConcatenate d s0 s1 s,
@@ -594,7 +594,7 @@ insert _ _ a b = tabulate go
 --
 -- >>>  :t append (Proxy :: Proxy 0) a
 -- append (Proxy :: Proxy 0) a
---   :: Array '[3, 4] Int -> Array '[3, 3, 4] Int
+--   :: Array [3, 4] Int -> Array [3, 3, 4] Int
 append ::
   forall a d s s'.
   ( DropIndex s d ~ s',
@@ -615,7 +615,7 @@ append d = insert d (Proxy :: Proxy (Dimension s d - 1))
 --
 -- >>> let r = reorder (Proxy :: Proxy '[2,0,1]) a
 -- >>> :t r
--- r :: Array '[4, 2, 3] Int
+-- r :: Array [4, 2, 3] Int
 reorder ::
   forall a ds s.
   ( HasShape ds,
@@ -859,7 +859,7 @@ mult = dot sum (*)
 --
 -- >>> let s = slice (Proxy :: Proxy '[[0,1],[0,2],[1,2]]) a
 -- >>> :t s
--- s :: Array '[2, 2, 2] Int
+-- s :: Array [2, 2, 2] Int
 --
 -- >>> s
 -- [[[2, 3],
