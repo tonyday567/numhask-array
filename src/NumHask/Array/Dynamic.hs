@@ -61,7 +61,7 @@ module NumHask.Array.Dynamic
 where
 
 import Data.List (intercalate)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import GHC.Show (Show (..))
 import NumHask.Array.Shape
 import NumHask.Prelude as P hiding (product)

@@ -79,11 +79,11 @@ import Data.Distributive (Distributive (..))
 import Data.Functor.Rep
 import Data.List ((!!))
 import Data.Proxy
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import GHC.Exts (IsList (..))
 import GHC.Show (Show (..))
 import GHC.TypeLits
-import qualified NumHask.Array.Dynamic as D
+import NumHask.Array.Dynamic qualified as D
 import NumHask.Array.Shape
 import NumHask.Prelude as P hiding (sequence, toList)
 
@@ -188,14 +188,12 @@ instance
   (Multiplicative a) =>
   MultiplicativeAction (Array s a)
   where
-    type Scalar (Array s a) = a
-    (|*) r s = fmap (s *) r
+  type Scalar (Array s a) = a
+  (|*) r s = fmap (s *) r
 
-instance
-  (Additive a) => AdditiveAction (Array s a)
-  where
-    type AdditiveScalar (Array s a) = a
-    (|+) r s = fmap (s +) r
+instance (Additive a) => AdditiveAction (Array s a) where
+  type AdditiveScalar (Array s a) = a
+  (|+) r s = fmap (s +) r
 
 instance
   (Subtractive a) =>
@@ -207,7 +205,7 @@ instance
   (Divisive a) =>
   DivisiveAction (Array s a)
   where
-  (|/) r s = fmap (/s) r
+  (|/) r s = fmap (/ s) r
 
 instance (HasShape s, JoinSemiLattice a) => JoinSemiLattice (Array s a) where
   (\/) = liftR2 (\/)

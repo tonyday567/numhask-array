@@ -36,4 +36,3 @@ import NumHask.Array.Shape
 -- - provides operators at value and type level to help manipulate shapes.
 --
 -- - provides fixed and dynamic arrays with the same API.
---
