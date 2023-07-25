@@ -1,6 +1,4 @@
-{-# OPTIONS_GHC -Wall #-}
-
--- | Multi-dimensional arrays for numhask.
+-- | Multi-dimensional arrays
 module NumHask.Array
   ( -- * Imports
     -- $imports
@@ -39,18 +37,3 @@ import NumHask.Array.Shape
 --
 -- - provides fixed and dynamic arrays with the same API.
 --
--- === API of an array language
---
--- See <http://hiperfit.dk/pdf/array14_final.pdf> for context and a sketch of an intermediate typed array language effort.
---
--- The operators that result from using the 'Representable' type - separation of size tracking at compile level, from computational at runtime - ends up looking like [APL](https://en.wikipedia.org/wiki/APL_(programming_language\)).
---
--- Matrix multiplication in APL is @+.x@ and in numhask-array is @dot sum (*)@.  There is a slight increase in abstraction by explicitly exposing the fold in the algorithm, but the expressions are both very neat and abstracted away from the specialisation of multiplying matrices.
---
--- References:
---
--- <https://blog.plover.com/prog/apl-matrix-product.html>
---
--- <https://en.wikipedia.org/wiki/Tensor_contraction>
---
--- <https://en.wikipedia.org/wiki/Tensor_(intrinsic_definition)#Definition:_Tensor_Product_of_Vector_Spaces>

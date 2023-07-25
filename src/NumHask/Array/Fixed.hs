@@ -1,20 +1,7 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RebindableSyntax #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StrictData #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
@@ -84,7 +71,6 @@ module NumHask.Array.Fixed
     safeRow,
     mmult,
     chol,
-    inv,
     invtri,
   )
 where
@@ -145,6 +131,7 @@ import NumHask.Prelude as P hiding (sequence, toList)
 --
 -- >>> [1,2,3] :: Array '[2,2] Int
 -- *** Exception: NumHaskException {errorMessage = "shape mismatch"}
+-- [[
 newtype Array s a = Array {unArray :: V.Vector a} deriving (Eq, Ord, Functor, Foldable, Generic, Traversable)
 
 instance (HasShape s, Show a) => Show (Array s a) where
@@ -198,29 +185,29 @@ instance
   negate = fmapRep negate
 
 instance
-  (HasShape s, Multiplicative a) =>
+  (Multiplicative a) =>
   MultiplicativeAction (Array s a)
   where
     type Scalar (Array s a) = a
-    (*.) r s = fmap (s *) r
+    (|*) r s = fmap (s *) r
 
 instance
-  (HasShape s, Additive a) => AdditiveAction (Array s a)
+  (Additive a) => AdditiveAction (Array s a)
   where
     type AdditiveScalar (Array s a) = a
-    (+.) r s = fmap (s +) r
+    (|+) r s = fmap (s +) r
 
 instance
-  (HasShape s, Subtractive a) =>
+  (Subtractive a) =>
   SubtractiveAction (Array s a)
   where
-  (-.) r s = fmap (\x -> x - s) r
+  (|-) r s = fmap (\x -> x - s) r
 
 instance
-  (HasShape s, Divisive a) =>
+  (Divisive a) =>
   DivisiveAction (Array s a)
   where
-  (/.) r s = fmap (/s) r
+  (|/) r s = fmap (/s) r
 
 instance (HasShape s, JoinSemiLattice a) => JoinSemiLattice (Array s a) where
   (\/) = liftR2 (\/)
@@ -228,7 +215,7 @@ instance (HasShape s, JoinSemiLattice a) => JoinSemiLattice (Array s a) where
 instance (HasShape s, MeetSemiLattice a) => MeetSemiLattice (Array s a) where
   (/\) = liftR2 (/\)
 
-instance (HasShape s, Subtractive a, Epsilon a, Ord a) => Epsilon (Array s a) where
+instance (HasShape s, Subtractive a, Epsilon a) => Epsilon (Array s a) where
   epsilon = singleton epsilon
 
 instance
@@ -889,6 +876,11 @@ slice pss a = tabulate go
     go s = index a (zipWith (!!) pss' s)
     pss' = natValss pss
 
+-- | takes the top-most elements according to the new dimension. Changes in dimension are not defined.
+--
+-- >>> takes a :: Array '[1,2,3] Int
+-- [[[1, 2, 3],
+--   [5, 6, 7]]]
 takes ::
   forall s s' a.
   ( HasShape s,
@@ -964,6 +956,7 @@ toScalar a = fromList [a]
 -- | <https://en.wikipedia.org/wiki/Vector_(mathematics_and_physics) Wiki Vector>
 type Vector s a = Array '[s] a
 
+-- | Vector specialisation of 'sequent'
 sequentv :: forall n. (KnownNat n) => Vector n Int
 sequentv = sequent
 
