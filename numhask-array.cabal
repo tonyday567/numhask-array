@@ -27,7 +27,7 @@ license:            BSD-3-Clause
 license-file:       LICENSE
 tested-with:        GHC == 8.10.7 || ==9.2.8 || ==9.4.5 || ==9.6.2
 build-type:         Simple
-extra-source-files: ChangeLog.md
+extra-doc-files: ChangeLog.md
 
 source-repository head
   type:     git
