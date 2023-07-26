@@ -22,11 +22,14 @@ import qualified NumHask.Array.Fixed as F
 import qualified NumHask.Array.Dynamic as D
 #+end_src
 
-* Setup
+* recip development
+
+'chol' uses the [[https://en.wikipedia.org/wiki/Cholesky_decomposition#The_Cholesky_algorithm][Cholesky-Crout]] algorithm.
+
 
 #+begin_src haskell :results output :exports both
 :r
-:set prompt " > "
+:set prompt "> "
 :set -Wno-type-defaults
 :set -Wno-unused-do-bind
 :set -Wno-name-shadowing
@@ -39,302 +42,48 @@ import Data.Functor.Rep
 import NumHask.Prelude
 import NumHask.Array.Fixed
 import NumHask.Array.Shape
-import NumHask.Array.Algorithms
+import Data.FormatN
 putStrLn "ok"
 #+end_src
 
 #+RESULTS:
-#+begin_example
-[3 of 5] Compiling NumHask.Array.Fixed ( src/NumHask/Array/Fixed.hs, interpreted )
-[4 of 5] Compiling NumHask.Array.Algorithms ( src/NumHask/Array/Algorithms.hs, interpreted ) [flags changed]
+: [1 of 4] Compiling NumHask.Array.Shape ( src/NumHask/Array/Shape.hs, interpreted ) [Flags changed]
+: [2 of 4] Compiling NumHask.Array.Dynamic ( src/NumHask/Array/Dynamic.hs, interpreted ) [Flags changed]
+: [3 of 4] Compiling NumHask.Array.Fixed ( src/NumHask/Array/Fixed.hs, interpreted ) [Flags changed]
+: [4 of 4] Compiling NumHask.Array    ( src/NumHask/Array.hs, interpreted ) [Flags changed]
+: Ok, four modules loaded.
+: ok
 
-src/NumHask/Array/Algorithms.hs:96:32: error:
-    Ambiguous occurrence ‘chol’
-    It could refer to
-       either ‘NumHask.Array.Fixed.chol’,
-              imported from ‘NumHask.Array.Fixed’ at src/NumHask/Array/Algorithms.hs:36:1-40
-              (and originally defined at src/NumHask/Array/Fixed.hs:1003:1-4)
-           or ‘NumHask.Array.Algorithms.chol’,
-              defined at src/NumHask/Array/Algorithms.hs:50:1
-   |
-96 | inversion a = invt (transpose (chol a)) `mmult` invt (chol a)
-   |                                ^^^^
-
-src/NumHask/Array/Algorithms.hs:96:55: error:
-    Ambiguous occurrence ‘chol’
-    It could refer to
-       either ‘NumHask.Array.Fixed.chol’,
-              imported from ‘NumHask.Array.Fixed’ at src/NumHask/Array/Algorithms.hs:36:1-40
-              (and originally defined at src/NumHask/Array/Fixed.hs:1003:1-4)
-           or ‘NumHask.Array.Algorithms.chol’,
-              defined at src/NumHask/Array/Algorithms.hs:50:1
-   |
-96 | inversion a = invt (transpose (chol a)) `mmult` invt (chol a)
-   |                                                       ^^^^
-
-src/NumHask/Array/Algorithms.hs:139:11: error:
-    Ambiguous occurrence ‘chol’
-    It could refer to
-       either ‘NumHask.Array.Fixed.chol’,
-              imported from ‘NumHask.Array.Fixed’ at src/NumHask/Array/Algorithms.hs:36:1-40
-              (and originally defined at src/NumHask/Array/Fixed.hs:1003:1-4)
-           or ‘NumHask.Array.Algorithms.chol’,
-              defined at src/NumHask/Array/Algorithms.hs:50:1
-    |
-139 |   print $ chol t
-    |           ^^^^
-Failed, three modules loaded.
->  >  >  >  >  >  >  >  >  >  >  >  >
-<no location info>: error:
-    Could not load module ‘NumHask.Array.Algorithms’
-    It is a member of the hidden package ‘numhask-array-0.10.0’.
-    Perhaps you need to add ‘numhask-array’ to the build-depends in your .cabal file.
-ok
-#+end_example
-
-#+begin_src haskell
-t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
-c = chol t
-ti = undiag (fmap recip (diag c))
-tl = c - undiag (diag c)
-l = negate (ti * tl)
-v = [0..3] :: Array '[3] Int
-:t fmap (l^) v
-#+end_src
-
-#+RESULTS:
-#+begin_example
-<interactive>:23:8: error:
-    • Variable not in scope: ti
-    • Perhaps you meant one of these:
-        ‘t’ (line 19), ‘pi’ (imported from NumHask.Prelude),
-        ‘to’ (imported from NumHask.Prelude)
-
-<interactive>:23:13: error:
-    • Variable not in scope: tu
-    • Perhaps you meant one of these:
-        ‘t’ (line 19), ‘to’ (imported from NumHask.Prelude)
-#+end_example
-
-
-
-#+begin_src haskell
-t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
-t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
-t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
-#+end_src
-
-#+begin_src haskell
-t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
-inversion t
-t `mmult` inversion t
-#+end_src
-
-#+RESULTS:
-|      1.0000000000000284 | 1.7763568394002505e-15 |  -8.881784197001252e-16 |
-|  1.4210854715202004e-14 |     1.0000000000000284 | -2.6645352591003757e-15 |
-| -5.6843418860808015e-14 | -7.105427357601002e-15 |      1.0000000000000018 |
-
-
-** triangular matrix
-
-https://math.stackexchange.com/questions/1003801/inverse-of-an-invertible-upper-triangular-matrix-of-order-3
-
-
-𝑇_{−1}==(∑_{0}^{2}(−Λ_{−1}𝑇𝑢)^{𝑗})Λ{−1}
-
-#+begin_src haskell
-t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
-tridInv = fmap (\x -> bool (1/x) 0 (x==0)) $ undiag (diag (chol t))
-tu = chol t - undiag (diag (chol t))
-inv' = (ident - (tridInv `mmult` tu) + (tridInv `mmult` tu) `mmult` (tridInv `mmult` tu)) `mmult` tridInv
-inv' `mmult` chol t
-t `mmult` (inv' (transpose (chol t)) `mmult` inv' (chol t))
-
-#+end_src
-
-#+RESULTS:
-#+begin_example
-<interactive>:91:12: error:
-    • Couldn't match expected type ‘Array '[3, 3] Double
-                                    -> Array '[3, k0] Double’
-                  with actual type ‘Array '[3, 3] Double’
-    • The function ‘inv'’ is applied to one argument,
-      but its type ‘Array '[3, 3] Double’ has none
-      In the first argument of ‘mmult’, namely
-        ‘inv' (transpose (chol t))’
-      In the second argument of ‘mmult’, namely
-        ‘(inv' (transpose (chol t)) `mmult` inv' (chol t))’
-
-<interactive>:91:46: error:
-    • Couldn't match expected type ‘Array '[3, 3] Double
-                                    -> Array '[k0, n] Double’
-                  with actual type ‘Array '[3, 3] Double’
-    • The function ‘inv'’ is applied to one argument,
-      but its type ‘Array '[3, 3] Double’ has none
-      In the second argument of ‘mmult’, namely ‘inv' (chol t)’
-      In the second argument of ‘mmult’, namely
-        ‘(inv' (transpose (chol t)) `mmult` inv' (chol t))’
-    • Relevant bindings include
-        it :: Array '[3, n] Double (bound at <interactive>:91:1)
-#+end_example
-
-** inverse development
-
-[[https://en.wikipedia.org/wiki/Cholesky_decomposition#The_Cholesky_algorithm][Cholesky]]
-
+Example from https://rosettacode.org/wiki/Cholesky_decomposition#Haskell
 
 #+begin_src haskell :results output
-t = [4,12,-16,12,37,-43,-16,-43,98] :: Array '[3,3] Double
-t
-#+end_src
-
-#+RESULTS:
-:
-: [[4.0, 12.0, -16.0],
-:  [12.0, 37.0, -43.0],
-:  [-16.0, -43.0, 98.0]]
-
-https://rosettacode.org/wiki/Cholesky_decomposition#Haskell
-
-** inversion
-
-a = chol a * transpose (chol a)
-
-a * inv a = ident
-
-(chol a) * (transpose (chol a)) * inv a = ident
-
-inv a = invu (transpose (chol a)) * invu (chol a)
-
-chol t = chol (transpose t)
-
-
-
-https://stackoverflow.com/questions/65579787/inverse-of-upper-triangular-matrix-algorithm
-
-L_{0,0} = sqrt A_{0,0}
-L_{0,1} = 1/L_{0,0} (A_{0,1} - )
-
-#+begin_src haskell :results output
-:t tabulate
-:t index
-#+end_src
-
-#+RESULTS:
-: tabulate :: Representable f => (Data.Functor.Rep.Rep f -> a) -> f a
-: index :: Representable f => f a -> Data.Functor.Rep.Rep f -> a
-
-#+begin_src haskell :results output
-a00 = index t [0]
-r0 = sqrt a00
-a01 = index t [1]
-r1 = index t [0]/r0
-r2 = index t [1]/r0
-r3 = sqrt (a11 - r1*r1)
-r4 = (a12 - r1*r2) / r3
-r5 = sqrt (a22 - r2*r2 - r4*r4)
-
+a = [25, 15, -5 ,15, 18, 0 ,-5,  0, 11] :: Matrix 3 3 Double
+b = [ 18, 22, 54, 42 , 22, 70, 86, 62 , 54, 86, 174, 134 , 42, 62, 134, 106] :: Matrix 4 4 Double
+chol a
+chol b
+fmap (fixed (Just 3)) (a `mmult` recip a)
+fmap (fixed (Just 3)) (b `mmult` recip b)
+fmap (fixed (Just 3)) (dot sum (*) b (recip b))
 #+end_src
 
 #+RESULTS:
 #+begin_example
-
->  >  >
-<interactive>:61:6: error:
-    • Variable not in scope: a02 :: Double
-    • Perhaps you meant one of these:
-        ‘Ghci11.a00’ (imported from Ghci11), ‘a00’ (line 57),
-        ‘Ghci12.a01’ (imported from Ghci12)
-<interactive>:62:12: error:
-    • Variable not in scope: a11 :: Double
-    • Perhaps you meant one of these:
-        ‘Ghci12.a01’ (imported from Ghci12), ‘a01’ (line 59)
-<interactive>:63:7: error: Variable not in scope: a12 :: Double
-
-<interactive>:63:16: error:
-    • Variable not in scope: r2 :: Double
-    • Perhaps you meant one of these: ‘r1’ (line 60), ‘r0’ (line 58)
-
-<interactive>:63:22: error:
-    • Variable not in scope: r3 :: Double
-    • Perhaps you meant one of these: ‘r1’ (line 60), ‘r0’ (line 58)
-<interactive>:64:12: error: Variable not in scope: a22
-
-<interactive>:64:18: error:
-    • Variable not in scope: r2
-    • Perhaps you meant one of these: ‘r1’ (line 60), ‘r0’ (line 58)
-
-<interactive>:64:21: error:
-    • Variable not in scope: r2
-    • Perhaps you meant one of these: ‘r1’ (line 60), ‘r0’ (line 58)
-
-<interactive>:64:26: error:
-    • Variable not in scope: r4
-    • Perhaps you meant one of these: ‘r1’ (line 60), ‘r0’ (line 58)
-
-<interactive>:64:29: error:
-    • Variable not in scope: r4
-    • Perhaps you meant one of these: ‘r1’ (line 60), ‘r0’ (line 58)
+[[5.0, 0.0, 0.0],
+ [3.0, 3.0, 0.0],
+ [-1.0, 1.0, 3.0]]
+[[4.242640687119285, 0.0, 0.0, -5.102196573270443e-15],
+ [5.185449728701349, 6.565905201197403, 0.0, 0.0],
+ [12.727922061357857, 3.0460384954008553, 1.6497422479090704, 0.0],
+ [9.899494936611667, 1.624553864213788, 1.8497110052313648, 1.3926212476456026]]
+[["1.000", "0.000", "-0.000"],
+ ["0.000", "1.000", "0.000"],
+ ["-0.000", "0.000", "1.000"]]
+[["1.000", "0.000", "-0.000", "0.000"],
+ ["-0.000", "1.000", "-0.000", "0.000"],
+ ["-0.000", "0.000", "1.000", "0.000"],
+ ["-0.000", "0.000", "-0.000", "1.000"]]
+[["1.000", "0.000", "-0.000", "0.000"],
+ ["-0.000", "1.000", "-0.000", "0.000"],
+ ["-0.000", "0.000", "1.000", "0.000"],
+ ["-0.000", "0.000", "-0.000", "1.000"]]
 #+end_example
-
-** gausss jordan
-
-https://rosettacode.org/wiki/Gauss-Jordan_matrix_inversion#Haskell
-
-#+begin_src haskell
-isMatrix xs = null xs || all ((== (length.head $ xs)).length) xs
-
-isSquareMatrix xs = null xs || all ((== (length xs)).length) xs
-
-mult:: Num a => [[a]] -> [[a]] -> [[a]]
-mult uss vss = map ((\xs -> if null xs then [] else foldl1 (zipWith (+)) xs). zipWith (\vs u -> map (u*) vs) vss) uss
-
-matI::(Num a) => Int -> [[a]]
-matI n = [ [fromIntegral.fromEnum $ i == j | j <- [1..n]] | i <- [1..n]]
-
-inversion xs = gauss xs (matI $ length xs)
-
-gauss::[[Double]] -> [[Double]] -> [[Double]]
-gauss xs bs = map (map fromRational) $ solveGauss (toR xs) (toR bs)
-    where toR = map $ map toRational
-
-solveGauss:: (Fractional a, Ord a) => [[a]] -> [[a]] -> [[a]]
-solveGauss xs bs | null xs || null bs || length xs /= length bs || (not $ isSquareMatrix xs) || (not $ isMatrix bs) = []
-                 | otherwise = uncurry solveTriangle $ triangle xs bs
-
-solveTriangle::(Fractional a,Eq a) => [[a]] -> [[a]] -> [[a]]
-solveTriangle us _ | not.null.dropWhile ((/= 0).head) $ us = []
-solveTriangle ([c]:as) (b:bs) = go as bs [map (/c) b]
-  where
-  val us vs ws = let u = head us in map (/u) $ zipWith (-) vs (head $ mult [tail us] ws)
-  go [] _ zs          = zs
-  go _ [] zs          = zs
-  go (x:xs) (y:ys) zs = go xs ys $ (val x y zs):zs
-
-triangle::(Num a, Ord a) => [[a]] -> [[a]] -> ([[a]],[[a]])
-triangle xs bs = triang ([],[]) (xs,bs)
-    where
-    triang ts (_,[]) = ts
-    triang ts ([],_) = ts
-    triang (os,ps) zs = triang (us:os,cs:ps).unzip $ [(fun tus vs, fun cs es) | (v:vs,es) <- zip uss css,let fun = zipWith (\x y -> v*x - u*y)]
-        where ((us@(u:tus)):uss,cs:css) = bubble zs
-
-bubble::(Num a, Ord a) => ([[a]],[[a]]) -> ([[a]],[[a]])
-bubble (xs,bs) = (go xs, go bs)
-    where
-    idmax = snd.maximum.flip zip [0..].map (abs.head) $ xs
-    go ys = let (us,vs) = splitAt idmax ys in vs ++ us
-
-main = do
-  let a = [[1, 2, 3], [4, 1, 6], [7, 8, 9]]
-  let b = [[2, -1, 0], [-1, 2, -1], [0, -1, 2]]
-  putStrLn "inversion a ="
-  mapM_ print $ inversion a
-  putStrLn "\ninversion b ="
-  mapM_ print $ inversion b
-#+end_src
-
-#+RESULTS:
-: <interactive>:63:17: error:
-:     Variable not in scope: inversion :: t1 -> t0 a0
