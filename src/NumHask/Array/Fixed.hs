@@ -1,26 +1,13 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RebindableSyntax #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StrictData #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
--- | Arrays with a fixed shape.
+-- | Arrays with a fixed shape (known shape at compile time).
 module NumHask.Array.Fixed
   ( -- $usage
     Array (..),
@@ -34,10 +21,11 @@ module NumHask.Array.Fixed
     takes,
     reshape,
     transpose,
-    diag,
-    undiag,
+    indices,
     ident,
     sequent,
+    diag,
+    undiag,
     singleton,
     selects,
     selectsExcept,
@@ -51,7 +39,7 @@ module NumHask.Array.Fixed
     append,
     reorder,
     expand,
-    expand',
+    expandr,
     apply,
     contract,
     dot,
@@ -63,7 +51,6 @@ module NumHask.Array.Fixed
 
     --
     -- Scalar specialisations
-    Scalar,
     fromScalar,
     toScalar,
 
@@ -85,7 +72,6 @@ module NumHask.Array.Fixed
     safeRow,
     mmult,
     chol,
-    inv,
     invtri,
   )
 where
@@ -94,11 +80,11 @@ import Data.Distributive (Distributive (..))
 import Data.Functor.Rep
 import Data.List ((!!))
 import Data.Proxy
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import GHC.Exts (IsList (..))
 import GHC.Show (Show (..))
 import GHC.TypeLits
-import qualified NumHask.Array.Dynamic as D
+import NumHask.Array.Dynamic qualified as D
 import NumHask.Array.Shape
 import NumHask.Prelude as P hiding (sequence, toList)
 
@@ -115,6 +101,7 @@ import NumHask.Prelude as P hiding (sequence, toList)
 -- >>> import Data.Functor.Rep
 -- >>> let s = [1] :: Array ('[] :: [Nat]) Int -- scalar
 -- >>> let v = [1,2,3] :: Array '[3] Int       -- vector
+-- >>> let t = [0..3] :: Array '[2,2] Int     -- square matrix
 -- >>> let m = [0..11] :: Array '[3,4] Int     -- matrix
 -- >>> let a = [1..24] :: Array '[2,3,4] Int
 
@@ -146,6 +133,7 @@ import NumHask.Prelude as P hiding (sequence, toList)
 --
 -- >>> [1,2,3] :: Array '[2,2] Int
 -- *** Exception: NumHaskException {errorMessage = "shape mismatch"}
+-- [[
 newtype Array s a = Array {unArray :: V.Vector a} deriving (Eq, Ord, Functor, Foldable, Generic, Traversable)
 
 instance (HasShape s, Show a) => Show (Array s a) where
@@ -199,32 +187,27 @@ instance
   negate = fmapRep negate
 
 instance
-  (HasShape s, Multiplicative a) =>
-  MultiplicativeAction (Array s a) a
+  (Multiplicative a) =>
+  MultiplicativeAction (Array s a)
   where
-  (.*) s r = fmap (s *) r
-  {-# INLINE (.*) #-}
+  type Scalar (Array s a) = a
+  (|*) r s = fmap (s *) r
+
+instance (Additive a) => AdditiveAction (Array s a) where
+  type AdditiveScalar (Array s a) = a
+  (|+) r s = fmap (s +) r
 
 instance
-  (HasShape s, Additive a) =>
-  AdditiveAction (Array s a) a
+  (Subtractive a) =>
+  SubtractiveAction (Array s a)
   where
-  (.+) s r = fmap (s +) r
-  {-# INLINE (.+) #-}
+  (|-) r s = fmap (\x -> x - s) r
 
 instance
-  (HasShape s, Subtractive a) =>
-  SubtractiveAction (Array s a) a
+  (Divisive a) =>
+  DivisiveAction (Array s a)
   where
-  (.-) s r = fmap (s -) r
-  {-# INLINE (.-) #-}
-
-instance
-  (HasShape s, Divisive a) =>
-  DivisiveAction (Array s a) a
-  where
-  (./) s r = fmap (s /) r
-  {-# INLINE (./) #-}
+  (|/) r s = fmap (/ s) r
 
 instance (HasShape s, JoinSemiLattice a) => JoinSemiLattice (Array s a) where
   (\/) = liftR2 (\/)
@@ -232,7 +215,7 @@ instance (HasShape s, JoinSemiLattice a) => JoinSemiLattice (Array s a) where
 instance (HasShape s, MeetSemiLattice a) => MeetSemiLattice (Array s a) where
   (/\) = liftR2 (/\)
 
-instance (HasShape s, Subtractive a, Epsilon a, Ord a) => Epsilon (Array s a) where
+instance (HasShape s, Subtractive a, Epsilon a) => Epsilon (Array s a) where
   epsilon = singleton epsilon
 
 instance
@@ -277,6 +260,22 @@ with ::
   r
 with (D.Array _ v) f = f (Array v)
 
+-- | Takes the top-most elements according to the new dimension.
+--
+-- >>> takes a :: Array '[2,2,3] Int
+-- [[[1, 2, 3],
+--   [5, 6, 7]],
+--  [[13, 14, 15],
+--   [17, 18, 19]]]
+takes ::
+  forall s s' a.
+  ( HasShape s,
+    HasShape s'
+  ) =>
+  Array s a ->
+  Array s' a
+takes a = tabulate $ \s -> index a s
+
 -- | Reshape an array (with the same number of elements).
 --
 -- >>> reshape a :: Array '[4,3,2] Int
@@ -312,6 +311,15 @@ reshape a = tabulate (index a . shapen s . flatten s')
 transpose :: forall a s. (HasShape s, HasShape (Reverse s)) => Array s a -> Array (Reverse s) a
 transpose a = tabulate (index a . reverse)
 
+-- | Indices of an Array.
+--
+-- >>> indices :: Array '[3,3] [Int]
+-- [[[0,0], [0,1], [0,2]],
+--  [[1,0], [1,1], [1,2]],
+--  [[2,0], [2,1], [2,2]]]
+indices :: forall s. (HasShape s) => Array s [Int]
+indices = tabulate id
+
 -- | The identity array.
 --
 -- >>> ident :: Array '[3,2] Int
@@ -326,16 +334,21 @@ ident = tabulate (bool zero one . isDiag)
     isDiag [x, y] = x == y
     isDiag (x : y : xs) = x == y && isDiag (y : xs)
 
--- | A sequential array of Ints
+-- | An array of sequential Ints
 --
 -- >>> sequent :: Array '[3] Int
 -- [0, 1, 2]
+--
+-- >>> sequent :: Array '[3,3] Int
+-- [[0, 0, 0],
+--  [0, 1, 0],
+--  [0, 0, 2]]
 sequent :: forall s. (HasShape s) => Array s Int
 sequent = tabulate go
   where
     go [] = zero
     go [i] = i
-    go (i : j : _) = bool zero i (i == j)
+    go (i : js) = bool zero i (all (i ==) js)
 
 -- | Extract the diagonal of an array.
 --
@@ -353,6 +366,24 @@ diag a = tabulate go
     go [] = throw (NumHaskException "Rank Underflow")
     go (s' : _) = index a (replicate (length ds) s')
     ds = shapeVal (toShape @s)
+
+-- | Expand the array to form a diagonal array
+--
+-- >>> undiag ([1,1] :: Array '[2] Int)
+-- [[1, 0],
+--  [0, 1]]
+undiag ::
+  forall a s.
+  ( HasShape s,
+    Additive a,
+    HasShape ((++) s s)
+  ) =>
+  Array s a ->
+  Array ((++) s s) a
+undiag a = tabulate go
+  where
+    go [] = throw (NumHaskException "Rank Underflow")
+    go xs@(x : xs') = bool zero (index a xs) (all (x ==) xs')
 
 -- | Create an array composed of a single value.
 --
@@ -436,7 +467,7 @@ folds f d a = tabulate go
 --
 -- >>> let e = extracts (Proxy :: Proxy '[1,2]) a
 -- >>> :t e
--- e :: Array '[3, 4] (Array '[2] Int)
+-- e :: Array [3, 4] (Array '[2] Int)
 extracts ::
   forall ds st si so a.
   ( HasShape st,
@@ -457,7 +488,7 @@ extracts d a = tabulate go
 --
 -- >>> let e = extractsExcept (Proxy :: Proxy '[1,2]) a
 -- >>> :t e
--- e :: Array '[2] (Array '[3, 4] Int)
+-- e :: Array '[2] (Array [3, 4] Int)
 extractsExcept ::
   forall ds st si so a.
   ( HasShape st,
@@ -479,12 +510,12 @@ extractsExcept d a = tabulate go
 -- >>> let e = extracts (Proxy :: Proxy '[1,0]) a
 --
 -- >>> :t e
--- e :: Array '[3, 2] (Array '[4] Int)
+-- e :: Array [3, 2] (Array '[4] Int)
 --
 -- >>> let j = joins (Proxy :: Proxy '[1,0]) e
 --
 -- >>> :t j
--- j :: Array '[2, 3, 4] Int
+-- j :: Array [2, 3, 4] Int
 --
 -- >>> a == j
 -- True
@@ -507,7 +538,7 @@ joins _ a = tabulate go
 -- | Maps a function along specified dimensions.
 --
 -- >>> :t maps (transpose) (Proxy :: Proxy '[1]) a
--- maps (transpose) (Proxy :: Proxy '[1]) a :: Array '[4, 3, 2] Int
+-- maps (transpose) (Proxy :: Proxy '[1]) a :: Array [4, 3, 2] Int
 maps ::
   forall ds st st' si si' so a b.
   ( HasShape st,
@@ -530,7 +561,7 @@ maps f d a = joins d (fmapRep f (extracts d a))
 -- | Concatenate along a dimension.
 --
 -- >>> :t concatenate (Proxy :: Proxy 1) a a
--- concatenate (Proxy :: Proxy 1) a a :: Array '[2, 6, 4] Int
+-- concatenate (Proxy :: Proxy 1) a a :: Array [2, 6, 4] Int
 concatenate ::
   forall a s0 s1 d s.
   ( CheckConcatenate d s0 s1 s,
@@ -598,7 +629,7 @@ insert _ _ a b = tabulate go
 --
 -- >>>  :t append (Proxy :: Proxy 0) a
 -- append (Proxy :: Proxy 0) a
---   :: Array '[3, 4] Int -> Array '[3, 3, 4] Int
+--   :: Array [3, 4] Int -> Array [3, 3, 4] Int
 append ::
   forall a d s s'.
   ( DropIndex s d ~ s',
@@ -619,7 +650,7 @@ append d = insert d (Proxy :: Proxy (Dimension s d - 1))
 --
 -- >>> let r = reorder (Proxy :: Proxy '[2,0,1]) a
 -- >>> :t r
--- r :: Array '[4, 2, 3] Int
+-- r :: Array [4, 2, 3] Int
 reorder ::
   forall a ds s.
   ( HasShape ds,
@@ -640,7 +671,7 @@ reorder _ a = tabulate go
 -- For context, if the function is multiply, and the arrays are tensors,
 -- then this can be interpreted as a tensor product.
 --
--- https://en.wikipedia.org/wiki/Tensor_product
+-- < https://en.wikipedia.org/wiki/Tensor_product>
 --
 -- The concept of a tensor product is a dense crossroad, and a complete treatment is elsewhere.  To quote:
 --
@@ -650,6 +681,19 @@ reorder _ a = tabulate go
 -- [[1, 2, 3],
 --  [2, 4, 6],
 --  [3, 6, 9]]
+--
+-- Alternatively, expand can be understood as representing the permutation of element pairs of two arrays, so like the Applicative List instance.
+--
+-- >>> i2 = indices :: Array '[2,2] [Int]
+-- >>> expand (,) i2 i2
+-- [[[[([0,0],[0,0]), ([0,0],[0,1])],
+--    [([0,0],[1,0]), ([0,0],[1,1])]],
+--   [[([0,1],[0,0]), ([0,1],[0,1])],
+--    [([0,1],[1,0]), ([0,1],[1,1])]]],
+--  [[[([1,0],[0,0]), ([1,0],[0,1])],
+--    [([1,0],[1,0]), ([1,0],[1,1])]],
+--   [[([1,1],[0,0]), ([1,1],[0,1])],
+--    [([1,1],[1,0]), ([1,1],[1,1])]]]]
 expand ::
   forall s s' a b c.
   ( HasShape s,
@@ -664,7 +708,18 @@ expand f a b = tabulate (\i -> f (index a (take r i)) (index b (drop r i)))
   where
     r = rank (shape a)
 
-expand' ::
+-- | Like expand, but permutes the first array first, rather than the second.
+--
+-- >>> expand (,) v (v |+ 3)
+-- [[(1,4), (1,5), (1,6)],
+--  [(2,4), (2,5), (2,6)],
+--  [(3,4), (3,5), (3,6)]]
+--
+-- >>> expandr (,) v (v |+ 3)
+-- [[(1,4), (2,4), (3,4)],
+--  [(1,5), (2,5), (3,5)],
+--  [(1,6), (2,6), (3,6)]]
+expandr ::
   forall s s' a b c.
   ( HasShape s,
     HasShape s',
@@ -674,13 +729,13 @@ expand' ::
   Array s a ->
   Array s' b ->
   Array ((++) s s') c
-expand' f a b = tabulate (\i -> f (index a (drop r i)) (index b (take r i)))
+expandr f a b = tabulate (\i -> f (index a (drop r i)) (index b (take r i)))
   where
     r = rank (shape a)
 
 -- | Apply an array of functions to each array of values.
 --
--- This is in the spirit of the applicative functor operation (<*>).
+-- This is in the spirit of the applicative functor operation (\<*\>).
 --
 -- > expand f a b == apply (fmap f a) b
 --
@@ -689,14 +744,14 @@ expand' f a b = tabulate (\i -> f (index a (drop r i)) (index b (take r i)))
 --  [2, 4, 6],
 --  [3, 6, 9]]
 --
--- Arrays can't be applicative functors in haskell because the changes in shape are reflected in the types.
+-- Fixed Arrays can't be applicative functors because the changes in shape are reflected in the types.
 --
 -- > :t apply
--- apply
---   :: (HasShape s, HasShape s', HasShape (s ++ s')) =>
---      Array s (a -> b) -> Array s' a -> Array (s ++ s') b
+-- > apply
+-- >   :: (HasShape s, HasShape s', HasShape (s ++ s')) =>
+-- >      Array s (a -> b) -> Array s' a -> Array (s ++ s') b
 -- > :t (<*>)
--- (<*>) :: Applicative f => f (a -> b) -> f a -> f b
+-- > (<*>) :: Applicative f => f (a -> b) -> f a -> f b
 --
 -- >>> let b = [1..6] :: Array '[2,3] Int
 -- >>> contract sum (Proxy :: Proxy '[1,2]) (apply (fmap (*) b) (transpose b))
@@ -767,24 +822,31 @@ contract f xs a = f . diag <$> extractsExcept xs a
 -- >>> dot sum (*) b v
 -- [14, 32]
 --
--- dot allows operation on mis-shaped matrices:
+-- Array elements don't have to be numbers:
+--
+-- >>> x1 = (show <$> [1..4]) :: Array '[2,2] String
+-- >>> x2 = (show <$> [5..8]) :: Array '[2,2] String
+-- >>> x1
+-- [["1", "2"],
+--  ["3", "4"]]
+--
+-- >>> x2
+-- [["5", "6"],
+--  ["7", "8"]]
+--
+-- >>> import Data.List (intercalate)
+-- >>> dot (intercalate "+" . toList) (\a b -> a <> "*" <> b) x1 x2
+-- [["1*5+2*7", "1*6+2*8"],
+--  ["3*5+4*7", "3*6+4*8"]]
+--
+-- 'dot' allows operation on mis-shaped matrices. The algorithm ignores excess positions within the contracting dimension(s):
 --
 -- >>> let m23 = [1..6] :: Array '[2,3] Int
 -- >>> let m12 = [1,2] :: Array '[1,2] Int
 -- >>> shape $ dot sum (*) m23 m12
 -- [2,2]
 --
--- the algorithm ignores excess positions within the contracting dimension(s):
---
--- m23 shape: 2 3
---
--- m12 shape: 1 2
---
--- res shape: 2 2
---
--- FIXME: work out whether this is a feature or a bug...
---
--- find instances of a vector in a matrix
+-- Find instances of a vector in a matrix
 --
 -- >>> let cs = fromList ("abacbaab" :: [Char]) :: Array '[4,2] Char
 -- >>> let v = fromList ("ab" :: [Char]) :: Vector 2 Char
@@ -863,7 +925,7 @@ mult = dot sum (*)
 --
 -- >>> let s = slice (Proxy :: Proxy '[[0,1],[0,2],[1,2]]) a
 -- >>> :t s
--- s :: Array '[2, 2, 2] Int
+-- s :: Array [2, 2, 2] Int
 --
 -- >>> s
 -- [[[2, 3],
@@ -892,15 +954,6 @@ slice pss a = tabulate go
   where
     go s = index a (zipWith (!!) pss' s)
     pss' = natValss pss
-
-takes ::
-  forall s s' a.
-  ( HasShape s,
-    HasShape s'
-  ) =>
-  Array s a ->
-  Array s' a
-takes a = tabulate $ \s -> index a s
 
 -- | Remove single dimensions.
 --
@@ -950,11 +1003,6 @@ squeeze (Array x) = Array x
 -- $scalar
 -- Scalar specialisations
 
--- | <https://en.wikipedia.org/wiki/Scalarr_(mathematics) Wiki Scalar>
---
--- An Array '[] a despite being a Scalar is never-the-less a one-element vector under the hood. Unification of representation is unexplored.
-type Scalar a = Array ('[] :: [Nat]) a
-
 -- | Unwrapping scalars is probably a performance bottleneck.
 --
 -- >>> let s = [3] :: Array ('[] :: [Nat]) Int
@@ -973,6 +1021,7 @@ toScalar a = fromList [a]
 -- | <https://en.wikipedia.org/wiki/Vector_(mathematics_and_physics) Wiki Vector>
 type Vector s a = Array '[s] a
 
+-- | Vector specialisation of 'sequent'
 sequentv :: forall n. (KnownNat n) => Vector n Int
 sequentv = sequent
 
@@ -1005,7 +1054,7 @@ instance
   where
   recip a = invtri (transpose (chol a)) * invtri (chol a)
 
--- | inverse of a triangular matrix
+-- | <https://math.stackexchange.com/questions/1003801/inverse-of-an-invertible-upper-triangular-matrix-of-order-3 Inverse of a triangular> matrix.
 invtri :: forall a n. (KnownNat n, ExpField a, Eq a) => Array '[n, n] a -> Array '[n, n] a
 invtri a = sum (fmap (l ^) (sequentv :: Vector n Int)) * ti
   where
@@ -1013,25 +1062,9 @@ invtri a = sum (fmap (l ^) (sequentv :: Vector n Int)) * ti
     tl = a - undiag (diag a)
     l = negate (ti * tl)
 
--- | Expand the array to form a diagonal array
---
--- >>> undiag ([1,1] :: Array '[2] Int)
--- [[1, 0],
---  [0, 1]]
-undiag ::
-  forall a s.
-  ( HasShape s,
-    Additive a,
-    HasShape ((++) s s)
-  ) =>
-  Array s a ->
-  Array ((++) s s) a
-undiag a = tabulate go
-  where
-    go [] = throw (NumHaskException "Rank Underflow")
-    go xs@(x : xs') = bool zero (index a xs) (all (x ==) xs')
-
 -- | cholesky decomposition
+--
+-- Uses the <https://en.wikipedia.org/wiki/Cholesky_decomposition#The_Cholesky_algorithm Cholesky-Crout> algorithm.
 chol :: (KnownNat n, ExpField a) => Array '[n, n] a -> Array '[n, n] a
 chol a =
   let l =

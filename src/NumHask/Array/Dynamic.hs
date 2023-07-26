@@ -1,20 +1,11 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RebindableSyntax #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StrictData #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
--- | Arrays with a dynamic shape.
+-- | Arrays with a dynamic shape (shape only known at runtime).
 module NumHask.Array.Dynamic
   ( -- $usage
     Array (..),
@@ -28,10 +19,14 @@ module NumHask.Array.Dynamic
     tabulate,
 
     -- * Operators
+    takes,
     reshape,
     transpose,
-    diag,
+    indices,
     ident,
+    sequent,
+    diag,
+    undiag,
     singleton,
     selects,
     selectsExcept,
@@ -45,6 +40,7 @@ module NumHask.Array.Dynamic
     append,
     reorder,
     expand,
+    expandr,
     apply,
     contract,
     dot,
@@ -70,7 +66,7 @@ module NumHask.Array.Dynamic
 where
 
 import Data.List (intercalate)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import GHC.Show (Show (..))
 import NumHask.Array.Shape
 import NumHask.Prelude as P hiding (product)
@@ -170,6 +166,19 @@ index (Array s v) i = V.unsafeIndex v (flatten s i)
 tabulate :: () => [Int] -> ([Int] -> a) -> Array a
 tabulate ds f = Array ds . V.generate (size ds) $ (f . shapen ds)
 
+-- | Takes the top-most elements according to the new dimension.
+--
+-- >>> takes [2,2,3] a
+-- [[[1, 2, 3],
+--   [5, 6, 7]],
+--  [[13, 14, 15],
+--   [17, 18, 19]]]
+takes ::
+  [Int] ->
+  Array a ->
+  Array a
+takes ds a = tabulate ds $ \s -> index a s
+
 -- | Reshape an array (with the same number of elements).
 --
 -- >>> reshape [4,3,2] a
@@ -198,6 +207,15 @@ reshape s a = tabulate s (index a . shapen (shape a) . flatten s)
 transpose :: Array a -> Array a
 transpose a = tabulate (reverse $ shape a) (index a . reverse)
 
+-- | Indices of an Array.
+--
+-- >>> indices [3,3]
+-- [[[0,0], [0,1], [0,2]],
+--  [[1,0], [1,1], [1,2]],
+--  [[2,0], [2,1], [2,2]]]
+indices :: [Int] -> Array [Int]
+indices ds = tabulate ds id
+
 -- | The identity array.
 --
 -- >>> ident [3,2]
@@ -212,6 +230,22 @@ ident ds = tabulate ds (bool zero one . isDiag)
     isDiag [x, y] = x == y
     isDiag (x : y : xs) = x == y && isDiag (y : xs)
 
+-- | An array of sequential Ints
+--
+-- >>> sequent [3]
+-- [0, 1, 2]
+--
+-- >>> sequent [3,3]
+-- [[0, 0, 0],
+--  [0, 1, 0],
+--  [0, 0, 2]]
+sequent :: [Int] -> Array Int
+sequent ds = tabulate ds go
+  where
+    go [] = zero
+    go [i] = i
+    go (i : js) = bool zero i (all (i ==) js)
+
 -- | Extract the diagonal of an array.
 --
 -- >>> diag (ident [3,2])
@@ -223,6 +257,21 @@ diag a = tabulate [NumHask.Array.Shape.minimum (shape a)] go
   where
     go [] = throw (NumHaskException "Rank Underflow")
     go (s' : _) = index a (replicate (rank (shape a)) s')
+
+-- | Expand the array to form a diagonal array
+--
+-- >>> undiag 2 (fromFlatList [2] [1,1])
+-- [[1, 0],
+--  [0, 1]]
+undiag ::
+  (Additive a) =>
+  Int ->
+  Array a ->
+  Array a
+undiag r a = tabulate (replicate r (head (shape a))) go
+  where
+    go [] = throw (NumHaskException "Rank Underflow")
+    go xs@(x : xs') = bool zero (index a xs) (all (x ==) xs')
 
 -- | Create an array composed of a single value.
 --
@@ -420,6 +469,19 @@ reorder ds a = tabulate (reorder' (shape a) ds) go
 -- [[1, 2, 3],
 --  [2, 4, 6],
 --  [3, 6, 9]]
+--
+-- Alternatively, expand can be understood as representing the permutation of element pairs of two arrays, so like the Applicative List instance.
+--
+-- >>> i2 = indices [2,2]
+-- >>> expand (,) i2 i2
+-- [[[[([0,0],[0,0]), ([0,0],[0,1])],
+--    [([0,0],[1,0]), ([0,0],[1,1])]],
+--   [[([0,1],[0,0]), ([0,1],[0,1])],
+--    [([0,1],[1,0]), ([0,1],[1,1])]]],
+--  [[[([1,0],[0,0]), ([1,0],[0,1])],
+--    [([1,0],[1,0]), ([1,0],[1,1])]],
+--   [[([1,1],[0,0]), ([1,1],[0,1])],
+--    [([1,1],[1,0]), ([1,1],[1,1])]]]]
 expand ::
   (a -> b -> c) ->
   Array a ->
@@ -429,9 +491,29 @@ expand f a b = tabulate ((++) (shape a) (shape b)) (\i -> f (index a (take r i))
   where
     r = rank (shape a)
 
+-- | Like expand, but permutes the first array first, rather than the second.
+--
+-- >>> expand (,) v (fmap (+3) v)
+-- [[(1,4), (1,5), (1,6)],
+--  [(2,4), (2,5), (2,6)],
+--  [(3,4), (3,5), (3,6)]]
+--
+-- >>> expandr (,) v (fmap (+3) v)
+-- [[(1,4), (2,4), (3,4)],
+--  [(1,5), (2,5), (3,5)],
+--  [(1,6), (2,6), (3,6)]]
+expandr ::
+  (a -> b -> c) ->
+  Array a ->
+  Array b ->
+  Array c
+expandr f a b = tabulate ((++) (shape a) (shape b)) (\i -> f (index a (drop r i)) (index b (take r i)))
+  where
+    r = rank (shape a)
+
 -- | Apply an array of functions to each array of values.
 --
--- This is in the spirit of the applicative functor operation (<*>).
+-- This is in the spirit of the applicative functor operation (\<*\>).
 --
 -- > expand f a b == apply (fmap f a) b
 --
@@ -439,6 +521,8 @@ expand f a b = tabulate ((++) (shape a) (shape b)) (\i -> f (index a (take r i))
 -- [[1, 2, 3],
 --  [2, 4, 6],
 --  [3, 6, 9]]
+--
+-- Dynamic arrays can't be Applicatives because there is no 'pure' (Shape is not known at compile-time).
 --
 -- >>> let b = fromFlatList [2,3] [1..6] :: Array Int
 -- >>> contract sum [1,2] (apply (fmap (*) b) (transpose b))

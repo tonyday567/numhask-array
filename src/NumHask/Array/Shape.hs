@@ -1,19 +1,7 @@
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RebindableSyntax #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StrictData #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeInType #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE NoStarIsType #-}
-{-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 {-# OPTIONS_GHC -fno-warn-unused-top-binds #-}
 
@@ -51,15 +39,19 @@ module NumHask.Array.Shape
     posRelative,
     PosRelative,
     PosRelativeGo,
+    DecMap,
     addIndexes,
     AddIndexes,
     AddIndexesGo,
     dropIndexes,
     DropIndexes,
+    DropIndexesGo,
     takeIndexes,
     TakeIndexes,
     exclude,
     Exclude,
+    Enumerate,
+    EnumerateGo,
     concatenate',
     Concatenate,
     CheckConcatenate,
