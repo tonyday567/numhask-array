@@ -348,7 +348,7 @@ sequent = tabulate go
   where
     go [] = zero
     go [i] = i
-    go (i : js) = bool zero i (all (i==) js)
+    go (i : js) = bool zero i (all (i ==) js)
 
 -- | Extract the diagonal of an array.
 --
