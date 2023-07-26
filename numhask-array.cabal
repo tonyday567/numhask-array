@@ -1,18 +1,18 @@
 cabal-version:      3.0
 name:               numhask-array
-version:            0.11.0.0
+version:            0.11.0.1
 synopsis:           Multi-dimensional arrays.
 description:
   This package provides an interface into the [numhask](https://hackage.haskell.org/package/numhask) API, and both type- and value-level shape manipulation routines.
-  .
+
   == Usage
-  .
+
   >>> {-# LANGUAGE RebindableSyntax #-}
   >>> import NumHask.Prelude
   >>> import NumHask.Array
-  .
+
   In situations where shape is only known at runtime, a clear module configuration is:
-  .
+
   >>> import NumHask.Array.Shape
   >>> import qualified NumHask.Array.Fixed as F
   >>> import qualified NumHask.Array.Dynamic as D
