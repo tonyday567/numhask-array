@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: numhask-array
-version: 0.11.0.1
+version: 0.12
 license: BSD-3-Clause
 license-file: LICENSE
 copyright: Tony Day (c) 2016
@@ -109,8 +109,11 @@ library
         , distributive >=0.4 && <0.7
         , numhask      >=0.10 && <0.12
         , vector       >=0.12.3 && <0.14
+        , containers
+        , vector-algorithms
     exposed-modules:
         NumHask.Array
         NumHask.Array.Dynamic
         NumHask.Array.Fixed
         NumHask.Array.Shape
+        NumHask.Array.Sort
