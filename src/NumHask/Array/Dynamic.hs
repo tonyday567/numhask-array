@@ -61,6 +61,11 @@ module NumHask.Array.Dynamic
     col,
     row,
     mmult,
+    reverses,
+    rotates,
+    liftR2,
+    takes',
+    drops',
   )
 where
 
@@ -69,6 +74,7 @@ import Data.Vector qualified as V
 import GHC.Show (Show (..))
 import NumHask.Array.Shape
 import NumHask.Prelude as P hiding (product)
+import Data.Bifunctor
 
 -- $setup
 -- >>> :m -Prelude
@@ -133,24 +139,90 @@ instance (Show a) => Show (Array a) where
             "["
               ++ intercalate
                 (",\n" ++ replicate (n - x + 1) ' ')
-                (go n <$> toFlatList (extracts [0] a'))
+                (go n <$> snd (toFlatList (extracts [0] a')))
               ++ "]"
 
 -- * conversions
 
--- | convert from a list
+-- | convert from a (1-D) list, supplying the shape
 --
 -- >>> fromFlatList [2,3,4] [1..24] == a
 -- True
 fromFlatList :: [Int] -> [a] -> Array a
 fromFlatList ds l = Array ds $ V.fromList $ take (size ds) l
 
--- | convert to a flat list.
+-- | convert to a (shape, (1-D) list) tuple.
 --
--- >>> toFlatList a == [1..24]
+-- >>> toFlatList a == ([2,3,4],[1..24])
 -- True
-toFlatList :: Array a -> [a]
-toFlatList (Array _ v) = V.toList v
+--
+-- >>> fromFlatList
+toFlatList :: Array a -> ([Int], [a])
+toFlatList (Array s v) = (s, V.toList v)
+
+-- | arbitrary levels
+-- >>> flatten' ([[[1,2,3],[4,5,6]],[[7,8,9],[10,11,12]]] :: [[[Int]]]) :: [Int]
+-- [1,2,3,4,5,6,7,8,9,10,11,12]
+class Flatten i o where
+  flatten' :: [i] -> [o]
+
+instance Flatten a a where
+  flatten' = id
+
+instance Flatten i o => Flatten [i] o where
+  flatten' = concatMap flatten'
+
+-- |
+-- >>> fst (shapen' ([[4,5,6],[1,2,3]] :: [[Int]]) :: ([Int], Int))
+-- [2,3]
+class Shapen i o where
+  shapen' :: [i] -> ([Int],o)
+
+instance Shapen a a where
+  shapen' x = ([length x],head x)
+
+instance Shapen i o => Shapen [i] o where
+  shapen' x = first ([length x]<>) $ shapen' (head x)
+
+-- | arbitrary levels
+--
+-- >>> unnest ([[4,5,6],[1,2,3]] :: [[Int]]) :: Either String ([Int], [Int])
+-- Right ([2,3],[4,5,6,1,2,3])
+class UnNest i o where
+  unnest :: [i] -> Either String ([Int], [o])
+
+instance UnNest a a where
+  unnest x = Right ([length x], x)
+
+instance UnNest i o => UnNest [i] o where
+  unnest x = case errs of
+    [] -> (,xs') . ([length x]<>)<$> eql
+    (e:_) -> Left e
+    where
+      x2 = fmap unnest x
+      errs = [e | (Left e) <- x2]
+      eql = let (h:ls) = [l | (Right (l,_)) <- x2] in bool (Left "Raggedy list") (Right h) (all (h==) ls)
+      xs' = mconcat [ns | (Right (_,ns)) <- x2]
+
+-- FIXME: probably the best to hope for for nesting a flat list
+-- (groupN 1 <$> groupN 3 [4,5,6,1,2,3])
+-- >>> nest ([2,3],[4,5,6,1,2,3])
+groupN :: Int -> [a] -> [[a]]
+groupN _ [] = []
+groupN n xs = take n xs : groupN n (drop n xs)
+
+-- | arbitrary levels
+--
+-- >>> unnest ([[4,5,6],[1,2,3]] :: [[Int]]) :: Either String ([Int], [Int])
+-- Right ([2,3],[4,5,6,1,2,3])
+class Nest i o where
+  nest :: [Int] -> i -> o
+
+instance Nest [i] [i] where
+  nest [] x = x
+
+instance Nest [Int] [[Int]] where
+  nest (_:ss) x = nest ss <$> groupN (foldl' (*) 1 ss) x
 
 -- | extract an element at index /i/
 --
@@ -166,6 +238,9 @@ index (Array s v) i = V.unsafeIndex v (flatten s i)
 tabulate :: () => [Int] -> ([Int] -> a) -> Array a
 tabulate ds f = Array ds . V.generate (size ds) $ (f . shapen ds)
 
+liftR2 :: (a -> b -> c) -> Array a -> Array b -> Either String (Array c)
+liftR2 f x x' = bool (Left "shape mismatch") (Right $ Array (shape x) (V.zipWith f (unArray x) (unArray x'))) (shape x == shape x')
+
 -- | Takes the top-most elements according to the new dimension.
 --
 -- >>> takes [2,2,3] a
@@ -178,6 +253,33 @@ takes ::
   Array a ->
   Array a
 takes ds a = tabulate ds $ \s -> index a s
+
+-- | Takes the top-most elements according to the new dimension. Negative values take the bottom-most.
+--
+-- >>> takes' [2,2,(-3)] a
+-- [[[1, 2, 3],
+--   [5, 6, 7]],
+--  [[13, 14, 15],
+--   [17, 18, 19]]]
+takes' ::
+  [Int] ->
+  Array a ->
+  Array a
+takes' ds a = tabulate ds' $ \s -> index a (zipWith3 (\d' s' a' -> bool s' (s' + a' + d') (d'<0)) ds s (shape a))
+  where ds' = fmap abs ds
+
+-- | Drops the top-most elements. Negative values drop the bottom-most.
+--
+-- >>> drops' [1,2,(-3)] a
+drops' ::
+  [Int] ->
+  Array a ->
+  Array a
+drops' ds a = tabulate dsNew $ \s -> index a (zipWith (\d' s' -> bool (d' + s') s' (d'<0)) ds s)
+  where
+    ds' = fmap abs ds
+    dsNew = zipWith (\x d -> max 0 (x - d)) (shape a) ds'
+
 
 -- | Reshape an array (with the same number of elements).
 --
@@ -206,6 +308,12 @@ reshape s a = tabulate s (index a . shapen (shape a) . flatten s)
 -- True
 transpose :: Array a -> Array a
 transpose a = tabulate (reverse $ shape a) (index a . reverse)
+
+rotates ::
+  [(Int,Int)] ->
+  Array a ->
+  Array a
+rotates rs a = tabulate (shape a) (index a . rotateIndex rs (shape a))
 
 -- | Indices of an Array.
 --
@@ -454,6 +562,16 @@ reorder ::
 reorder ds a = tabulate (reorder' (shape a) ds) go
   where
     go s = index a (addIndexes [] ds s)
+
+-- | reverses order along specified dimensions.
+--
+-- >>> reverses [0] a
+--
+reverses ::
+  [Int] ->
+  Array a ->
+  Array a
+reverses ds a = tabulate (shape a) (index a . reverseIndex ds (shape a))
 
 -- | Product two arrays using the supplied binary function.
 --

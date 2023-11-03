@@ -70,6 +70,7 @@ module NumHask.Array.Fixed
     mmult,
     chol,
     invtri,
+    reverses,
   )
 where
 
@@ -130,7 +131,7 @@ import NumHask.Prelude as P hiding (sequence, toList)
 --
 -- >>> [1,2,3] :: Array '[2,2] Int
 -- [[*** Exception: NumHaskException {errorMessage = "shape mismatch"}
-newtype Array s a = Array {unArray :: V.Vector a} deriving (Eq, Ord, Functor, Foldable, Generic, Traversable)
+newtype Array s a = Array { vector :: V.Vector a } deriving (Eq, Ord, Functor, Foldable, Generic, Traversable)
 
 instance (HasShape s, Show a) => Show (Array s a) where
   show a = GHC.Show.show (toDynamic a)
@@ -161,7 +162,6 @@ instance
   {-# INLINE index #-}
 
 -- * NumHask heirarchy
-
 instance
   ( Additive a,
     HasShape s
@@ -658,6 +658,23 @@ reorder _ a = tabulate go
   where
     go s = index a (addIndexes [] ds s)
     ds = shapeVal (toShape @ds)
+
+-- | reverses order along specified dimensions.
+--
+-- >>> reverses [0] a
+--
+reverses ::
+  forall a ds s.
+  ( HasShape ds,
+    HasShape s
+  ) =>
+  Proxy ds ->
+  Array s a ->
+  Array s a
+reverses _ a = tabulate (index a . reverseIndex ds s')
+  where
+    ds = shapeVal (toShape @ds)
+    s' = shapeVal (toShape @s)
 
 -- | Product two arrays using the supplied binary function.
 --

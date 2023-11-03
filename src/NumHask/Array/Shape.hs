@@ -30,6 +30,9 @@ module NumHask.Array.Shape
     CheckIndex,
     checkIndexes,
     CheckIndexes,
+    reverseIndex,
+    modifyIndex,
+    rotateIndex,
     addIndex,
     AddIndex,
     dropIndex,
@@ -234,11 +237,33 @@ addIndex s i d = take i s ++ (d : drop i s)
 
 type AddIndex s i d = Take i s ++ (d : Drop i s)
 
+-- | reverse an index along specific dimensions.
+--
+-- >>> reverseIndex [0] [2,3,4] [0,1,2]
+-- [1,1,2]
+reverseIndex :: [Int] -> [Int] -> [Int] -> [Int]
+reverseIndex ds s xs = reverse $
+  foldr (\(i,x) acc -> (:acc) $ bool (s!!i - 1 - x) x (i `elem` ds)) [] (zip [0..] xs)
+
 type Reverse (a :: [k]) = ReverseGo a '[]
 
 type family ReverseGo (a :: [k]) (b :: [k]) :: [k] where
   ReverseGo '[] b = b
   ReverseGo (a : as) b = ReverseGo as (a : b)
+
+-- | rotate an index along specific dimensions.
+--
+-- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
+-- [2,1,2]
+rotateIndex :: [(Int,Int)] -> [Int] -> [Int] -> [Int]
+rotateIndex rs s xs = foldr (\(d,r) acc -> modifyIndex d (\x -> (x+r) `mod` s!!d) acc) xs rs
+
+-- | set an index at a specific dimension.
+--
+-- >>> modifyIndex 0 (+1) [0,1,2]
+-- [1,1,2]
+modifyIndex :: Int -> (Int -> Int) -> [Int] -> [Int]
+modifyIndex d f xs = take d xs <> [f (xs !! d)] <> drop (d+1) xs
 
 -- | convert a list of position that references a final shape to one that references positions relative to an accumulator.  Deletions are from the left and additions are from the right.
 --
