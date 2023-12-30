@@ -4,6 +4,7 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
+{-# OPTIONS_GHC -Wno-x-partial #-}
 
 -- | Arrays with a dynamic shape (shape only known at runtime).
 module NumHask.Array.Dynamic
@@ -380,6 +381,7 @@ undiag r a = tabulate (replicate r (head (shape a))) go
   where
     go [] = throw (NumHaskException "Rank Underflow")
     go xs@(x : xs') = bool zero (index a xs) (all (x ==) xs')
+
 
 -- | Create an array composed of a single value.
 --
