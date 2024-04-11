@@ -2,6 +2,7 @@
 
 module NumHask.Array.Sort where
 
+import NumHask.Prelude
 import Data.Ord (comparing)
 import Data.Vector.Algorithms.Intro (sortBy)
 import Data.Vector.Unboxed (generate, modify)

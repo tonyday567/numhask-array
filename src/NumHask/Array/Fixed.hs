@@ -11,6 +11,7 @@ module NumHask.Array.Fixed
 
     -- * Conversion
     with,
+    shapeList,
     shape,
     toDynamic,
 
@@ -232,13 +233,22 @@ instance
 --
 -- >>> shape a
 -- [2,3,4]
-shape :: forall a s. (HasShape s) => Array s a -> [Int]
-shape _ = shapeVal $ toShape @s
+shapeList :: forall a s. (HasShape s) => Array s a -> [Int]
+shapeList _ = shapeVal $ toShape @s
+{-# INLINE shapeList #-}
+
+-- | Get shape of an Array as an Array.
+--
+-- >>> shape a
+-- [2,3,4]
+shape :: forall a s n. (HasShape s, KnownNat n) => Array s a -> Array '[n] Int
+shape a = fromList (shapeList a)
 {-# INLINE shape #-}
+
 
 -- | convert to a dynamic array with shape at the value level.
 toDynamic :: (HasShape s) => Array s a -> D.Array a
-toDynamic a = D.fromFlatList (shape a) (toList a)
+toDynamic a = D.fromFlatList (shapeList a) (toList a)
 
 -- | Use a dynamic array in a fixed context.
 --
@@ -716,7 +726,7 @@ expand ::
   Array ((++) s s') c
 expand f a b = tabulate (\i -> f (index a (take r i)) (index b (drop r i)))
   where
-    r = rank (shape a)
+    r = rank (shapeList a)
 
 -- | Like expand, but permutes the first array first, rather than the second.
 --
@@ -741,7 +751,7 @@ expandr ::
   Array ((++) s s') c
 expandr f a b = tabulate (\i -> f (index a (drop r i)) (index b (take r i)))
   where
-    r = rank (shape a)
+    r = rank (shapeList a)
 
 -- | Apply an array of functions to each array of values.
 --
@@ -778,7 +788,7 @@ apply ::
   Array ((++) s s') b
 apply f a = tabulate (\i -> index f (take r i) (index a (drop r i)))
   where
-    r = rank (shape f)
+    r = rank (shapeList f)
 
 -- | Contract an array by applying the supplied (folding) function on diagonal elements of the dimensions.
 --

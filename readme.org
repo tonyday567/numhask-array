@@ -22,9 +22,17 @@ import qualified NumHask.Array.Fixed as F
 import qualified NumHask.Array.Dynamic as D
 #+end_src
 
+<<<<<<< HEAD
 * Development
 
 #+begin_src haskell :results output :exports both
+=======
+* recip development
+
+'chol' uses the [[https://en.wikipedia.org/wiki/Cholesky_decomposition#The_Cholesky_algorithm][Cholesky-Crout]] algorithm.
+
+#+begin_src haskell-ng :results output :exports both
+>>>>>>> 50f9423 (shapeList and :|)
 :r
 :set prompt "> "
 :set -Wno-type-defaults
@@ -43,18 +51,10 @@ import Data.FormatN
 putStrLn "ok"
 #+end_src
 
-#+RESULTS:
-: [1 of 4] Compiling NumHask.Array.Shape ( src/NumHask/Array/Shape.hs, interpreted ) [Flags changed]
-: [2 of 4] Compiling NumHask.Array.Dynamic ( src/NumHask/Array/Dynamic.hs, interpreted ) [Flags changed]
-: [3 of 4] Compiling NumHask.Array.Fixed ( src/NumHask/Array/Fixed.hs, interpreted ) [Flags changed]
-: [4 of 4] Compiling NumHask.Array    ( src/NumHask/Array.hs, interpreted ) [Flags changed]
-: Ok, four modules loaded.
-: ok
 
 ** Cholesky decomposition
 
 'chol' uses the [[https://en.wikipedia.org/wiki/Cholesky_decomposition#The_Cholesky_algorithm][Cholesky-Crout]] algorithm.
-
 
 Example from https://rosettacode.org/wiki/Cholesky_decomposition#Haskell
 
@@ -89,3 +89,11 @@ fmap (fixed (Just 3)) (dot sum (*) b (recip b))
  ["-0.000", "0.000", "1.000", "0.000"],
  ["-0.000", "0.000", "-0.000", "1.000"]]
 #+end_example
+
+
+* dyno development
+
+#+begin_src haskell-ng :results output
+import NumHask.Array.Dynamic qualified as D
+
+#+end_src

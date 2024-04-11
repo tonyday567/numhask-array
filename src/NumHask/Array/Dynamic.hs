@@ -4,29 +4,34 @@
 {-# OPTIONS_GHC -Wno-x-partial #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -Wno-x-partial #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Arrays with a dynamic shape (shape only known at runtime).
 module NumHask.Array.Dynamic
   ( -- $usage
     Array (..),
-
+    pattern (:|),
     -- * Conversion
     fromFlatList,
     toFlatList,
+    fromList1,
+    fromList2,
 
     -- * representable replacements
     index,
     tabulate,
 
     -- * Operators
+    isEmpty,
     takes,
-    reshape,
-    transpose,
+    reshape',
     indices,
     ident,
     sequent,
     diag,
     undiag,
+    single,
     singleton,
     selects,
     selectsExcept,
@@ -67,15 +72,16 @@ module NumHask.Array.Dynamic
     liftR2,
     takes',
     drops',
+    liftR2_,
   )
 where
 
-import Data.List (intercalate)
+import Data.List qualified as List
 import Data.Vector qualified as V
 import GHC.Show (Show (..))
 import NumHask.Array.Shape
-import NumHask.Prelude as P hiding (product)
-import Data.Bifunctor
+import NumHask.Prelude as P
+import Data.Bifunctor qualified as B
 
 -- $setup
 -- >>> :m -Prelude
@@ -106,6 +112,10 @@ import Data.Bifunctor
 -- >>> let v = fromFlatList [3] [1,2,3] :: Array Int
 -- >>> let m = fromFlatList [3,4] [0..11] :: Array Int
 
+
+data NumHaskWarning =
+    NYI | EmptyStack1 | EmptyStack2 | ApplyFunction | NotBox | TypeMismatch | SizeMismatch | NotNat | EmptyArray | NotArray deriving (Eq, Ord, Show)
+
 -- | a multidimensional array with a value-level shape
 --
 -- >>> let a = fromFlatList [2,3,4] [1..24] :: Array Int
@@ -116,7 +126,7 @@ import Data.Bifunctor
 --  [[13, 14, 15, 16],
 --   [17, 18, 19, 20],
 --   [21, 22, 23, 24]]]
-data Array a = Array {shape :: [Int], unArray :: V.Vector a}
+data Array a = Array {shapeList :: [Int], unArray :: V.Vector a}
   deriving (Eq, Ord, Generic)
 
 instance Functor Array where
@@ -130,18 +140,31 @@ instance Traversable Array where
     fromFlatList s <$> traverse f (toList v)
 
 instance (Show a) => Show (Array a) where
-  show a@(Array l _) = go (length l) a
+  show a@(Array l _) = go (P.length l) a
     where
       go n a'@(Array l' m) =
-        case length l' of
+        case P.length l' of
           0 -> GHC.Show.show (V.head m)
-          1 -> "[" ++ intercalate ", " (GHC.Show.show <$> V.toList m) ++ "]"
+          1 -> "[" ++ List.intercalate ", " (GHC.Show.show <$> V.toList m) ++ "]"
           x ->
             "["
-              ++ intercalate
+              ++ List.intercalate
                 (",\n" ++ replicate (n - x + 1) ' ')
                 (go n <$> snd (toFlatList (extracts [0] a')))
               ++ "]"
+
+cons :: Array a -> Array a -> Array a
+cons = concatenate 0
+
+uncons :: Array a -> (Array a, Array a)
+uncons a = (selects [0] [0] a, selectsExcept [0] [0] a)
+
+infix 5 :|
+
+pattern (:|) :: Array a -> Array a -> Array a
+pattern x :| xs <- (uncons -> (x, xs))
+  where
+    x :| xs = cons x xs
 
 -- * conversions
 
@@ -150,7 +173,7 @@ instance (Show a) => Show (Array a) where
 -- >>> fromFlatList [2,3,4] [1..24] == a
 -- True
 fromFlatList :: [Int] -> [a] -> Array a
-fromFlatList ds l = Array ds $ V.fromList $ take (size ds) l
+fromFlatList ds l = Array ds $ V.fromList $ List.take (size ds) l
 
 -- | convert to a (shape, (1-D) list) tuple.
 --
@@ -160,6 +183,12 @@ fromFlatList ds l = Array ds $ V.fromList $ take (size ds) l
 -- >>> fromFlatList
 toFlatList :: Array a -> ([Int], [a])
 toFlatList (Array s v) = (s, V.toList v)
+
+fromList1 :: [a] -> Array a
+fromList1 xs = fromFlatList [P.length xs] xs
+
+fromList2 :: Int -> [a] -> Array a
+fromList2 r xs = fromFlatList [r, P.length xs `div` r] xs
 
 -- | arbitrary levels
 -- >>> flatten' ([[[1,2,3],[4,5,6]],[[7,8,9],[10,11,12]]] :: [[[Int]]]) :: [Int]
@@ -180,10 +209,10 @@ class Shapen i o where
   shapen' :: [i] -> ([Int],o)
 
 instance Shapen a a where
-  shapen' x = ([length x],head x)
+  shapen' x = ([P.length x], head x)
 
 instance Shapen i o => Shapen [i] o where
-  shapen' x = first ([length x]<>) $ shapen' (head x)
+  shapen' x = B.first ([P.length x]<>) $ shapen' (head x)
 
 -- | arbitrary levels
 --
@@ -193,11 +222,11 @@ class UnNest i o where
   unnest :: [i] -> Either String ([Int], [o])
 
 instance UnNest a a where
-  unnest x = Right ([length x], x)
+  unnest x = Right ([P.length x], x)
 
 instance UnNest i o => UnNest [i] o where
   unnest x = case errs of
-    [] -> (,xs') . ([length x]<>)<$> eql
+    [] -> (,xs') . ([P.length x]<>)<$> eql
     (e:_) -> Left e
     where
       x2 = fmap unnest x
@@ -210,7 +239,7 @@ instance UnNest i o => UnNest [i] o where
 -- >>> nest ([2,3],[4,5,6,1,2,3])
 groupN :: Int -> [a] -> [[a]]
 groupN _ [] = []
-groupN n xs = take n xs : groupN n (drop n xs)
+groupN n xs = List.take n xs : groupN n (List.drop n xs)
 
 -- | arbitrary levels
 --
@@ -240,7 +269,16 @@ tabulate :: () => [Int] -> ([Int] -> a) -> Array a
 tabulate ds f = Array ds . V.generate (size ds) $ (f . shapen ds)
 
 liftR2 :: (a -> b -> c) -> Array a -> Array b -> Either String (Array c)
-liftR2 f x x' = bool (Left "shape mismatch") (Right $ Array (shape x) (V.zipWith f (unArray x) (unArray x'))) (shape x == shape x')
+liftR2 f x x' = bool (Left "shape mismatch") (Right $ Array (shapeList x) (V.zipWith f (unArray x) (unArray x'))) (shapeList x == shapeList x')
+
+liftR2_ :: (a -> b -> c) -> Array a -> Array b -> Array c
+liftR2_ f x x' = either error id (liftR2 f x x')
+
+isEmpty :: Array a -> Bool
+isEmpty = (zero==) . size . shapeList
+
+tail' :: Array a -> Array a
+tail' a = undefined
 
 -- | Takes the top-most elements according to the new dimension.
 --
@@ -266,7 +304,7 @@ takes' ::
   [Int] ->
   Array a ->
   Array a
-takes' ds a = tabulate ds' $ \s -> index a (zipWith3 (\d' s' a' -> bool s' (s' + a' + d') (d'<0)) ds s (shape a))
+takes' ds a = tabulate ds' $ \s -> index a (zipWith3 (\d' s' a' -> bool s' (s' + a' + d') (d'<0)) ds s (shapeList a))
   where ds' = fmap abs ds
 
 -- | Drops the top-most elements. Negative values drop the bottom-most.
@@ -279,12 +317,12 @@ drops' ::
 drops' ds a = tabulate dsNew $ \s -> index a (zipWith (\d' s' -> bool (d' + s') s' (d'<0)) ds s)
   where
     ds' = fmap abs ds
-    dsNew = zipWith (\x d -> max 0 (x - d)) (shape a) ds'
+    dsNew = zipWith (\x d -> max 0 (x - d)) (shapeList a) ds'
 
 
 -- | Reshape an array (with the same number of elements).
 --
--- >>> reshape [4,3,2] a
+-- >>> reshape' [4,3,2] a
 -- [[[1, 2],
 --   [3, 4],
 --   [5, 6]],
@@ -297,24 +335,17 @@ drops' ds a = tabulate dsNew $ \s -> index a (zipWith (\d' s' -> bool (d' + s') 
 --  [[19, 20],
 --   [21, 22],
 --   [23, 24]]]
-reshape ::
+reshape' ::
   [Int] ->
   Array a ->
   Array a
-reshape s a = tabulate s (index a . shapen (shape a) . flatten s)
-
--- | Reverse indices eg transposes the element A/ijk/ to A/kji/.
---
--- >>> index (transpose a) [1,0,0] == index a [0,0,1]
--- True
-transpose :: Array a -> Array a
-transpose a = tabulate (reverse $ shape a) (index a . reverse)
+reshape' s a = tabulate s (index a . shapen (shapeList a) . flatten s)
 
 rotates ::
   [(Int,Int)] ->
   Array a ->
   Array a
-rotates rs a = tabulate (shape a) (index a . rotateIndex rs (shape a))
+rotates rs a = tabulate (shapeList a) (index a . rotateIndex rs (shapeList a))
 
 -- | Indices of an Array.
 --
@@ -362,10 +393,10 @@ sequent ds = tabulate ds go
 diag ::
   Array a ->
   Array a
-diag a = tabulate [NumHask.Array.Shape.minimum (shape a)] go
+diag a = tabulate [NumHask.Array.Shape.minimum (shapeList a)] go
   where
     go [] = throw (NumHaskException "Rank Underflow")
-    go (s' : _) = index a (replicate (rank (shape a)) s')
+    go (s' : _) = index a (replicate (rank (shapeList a)) s')
 
 -- | Expand the array to form a diagonal array
 --
@@ -377,7 +408,7 @@ undiag ::
   Int ->
   Array a ->
   Array a
-undiag r a = tabulate (replicate r (head (shape a))) go
+undiag r a = tabulate (replicate r (head (shapeList a))) go
   where
     go [] = throw (NumHaskException "Rank Underflow")
     go xs@(x : xs') = bool zero (index a xs) (all (x ==) xs')
@@ -389,8 +420,17 @@ undiag r a = tabulate (replicate r (head (shape a))) go
 -- [[1, 1],
 --  [1, 1],
 --  [1, 1]]
-singleton :: [Int] -> a -> Array a
-singleton ds a = tabulate ds (const a)
+single :: [Int] -> a -> Array a
+single ds a = tabulate ds (const a)
+
+-- | Create an array of dimension [1] composed of a single value.
+--
+-- >>> singleton_ [3,2] one
+-- [[1, 1],
+--  [1, 1],
+--  [1, 1]]
+singleton :: a -> Array a
+singleton a = Array [1] (V.singleton a)
 
 -- | Select an array along dimensions.
 --
@@ -402,7 +442,7 @@ selects ::
   [Int] ->
   Array a ->
   Array a
-selects ds i a = tabulate (dropIndexes (shape a) ds) go
+selects ds i a = tabulate (dropIndexes (shapeList a) ds) go
   where
     go s = index a (addIndexes s ds i)
 
@@ -416,7 +456,7 @@ selectsExcept ::
   [Int] ->
   Array a ->
   Array a
-selectsExcept ds i a = selects (exclude (rank (shape a)) ds) i a
+selectsExcept ds i a = selects (exclude (rank (shapeList a)) ds) i a
 
 -- | Fold along specified dimensions.
 --
@@ -427,33 +467,33 @@ folds ::
   [Int] ->
   Array a ->
   Array b
-folds f ds a = tabulate (takeIndexes (shape a) ds) go
+folds f ds a = tabulate (takeIndexes (shapeList a) ds) go
   where
     go s = f (selects ds s a)
 
 -- | Extracts dimensions to an outer layer.
 --
 -- >>> let e = extracts [1,2] a
--- >>> shape <$> extracts [0] a
+-- >>> shapeList <$> extracts [0] a
 -- [[3,4], [3,4]]
 extracts ::
   [Int] ->
   Array a ->
   Array (Array a)
-extracts ds a = tabulate (takeIndexes (shape a) ds) go
+extracts ds a = tabulate (takeIndexes (shapeList a) ds) go
   where
     go s = selects ds s a
 
 -- | Extracts /except/ dimensions to an outer layer.
 --
 -- >>> let e = extractsExcept [1,2] a
--- >>> shape <$> extracts [0] a
+-- >>> shapeList <$> extracts [0] a
 -- [[3,4], [3,4]]
 extractsExcept ::
   [Int] ->
   Array a ->
   Array (Array a)
-extractsExcept ds a = extracts (exclude (rank (shape a)) ds) a
+extractsExcept ds a = extracts (exclude (rank (shapeList a)) ds) a
 
 -- | Join inner and outer dimension layers.
 --
@@ -468,12 +508,12 @@ joins ::
 joins ds a = tabulate (addIndexes si ds so) go
   where
     go s = index (index a (takeIndexes s ds)) (dropIndexes s ds)
-    so = shape a
-    si = shape (index a (replicate (rank so) 0))
+    so = shapeList a
+    si = shapeList (index a (replicate (rank so) 0))
 
 -- | Maps a function along specified dimensions.
 --
--- >>> shape $ maps (transpose) [1] a
+-- >>> shapeList $ maps (transpose) [1] a
 -- [4,3,2]
 maps ::
   (Array a -> Array b) ->
@@ -484,14 +524,14 @@ maps f ds a = joins ds (fmap f (extracts ds a))
 
 -- | Concatenate along a dimension.
 --
--- >>> shape $ concatenate 1 a a
+-- >>> shapeList $ concatenate 1 a a
 -- [2,6,4]
 concatenate ::
   Int ->
   Array a ->
   Array a ->
   Array a
-concatenate d a0 a1 = tabulate (concatenate' d (shape a0) (shape a1)) go
+concatenate d a0 a1 = tabulate (concatenate' d (shapeList a0) (shapeList a1)) go
   where
     go s =
       bool
@@ -505,7 +545,7 @@ concatenate d a0 a1 = tabulate (concatenate' d (shape a0) (shape a1)) go
             )
         )
         ((s !! d) >= (ds0 !! d))
-    ds0 = shape a0
+    ds0 = shapeList a0
 
 -- | Insert along a dimension at a position.
 --
@@ -522,7 +562,7 @@ insert ::
   Array a ->
   Array a ->
   Array a
-insert d i a b = tabulate (incAt d (shape a)) go
+insert d i a b = tabulate (incAt d (shapeList a)) go
   where
     go s
       | s !! d == i = index b (dropIndex s d)
@@ -543,7 +583,7 @@ append ::
   Array a ->
   Array a ->
   Array a
-append d a b = insert d (dimension (shape a) d) a b
+append d a b = insert d (dimension (shapeList a) d) a b
 
 -- | change the order of dimensions
 --
@@ -561,7 +601,7 @@ reorder ::
   [Int] ->
   Array a ->
   Array a
-reorder ds a = tabulate (reorder' (shape a) ds) go
+reorder ds a = tabulate (reorder' (shapeList a) ds) go
   where
     go s = index a (addIndexes [] ds s)
 
@@ -573,7 +613,7 @@ reverses ::
   [Int] ->
   Array a ->
   Array a
-reverses ds a = tabulate (shape a) (index a . reverseIndex ds (shape a))
+reverses ds a = tabulate (shapeList a) (index a . reverseIndex ds (shapeList a))
 
 -- | Product two arrays using the supplied binary function.
 --
@@ -607,9 +647,9 @@ expand ::
   Array a ->
   Array b ->
   Array c
-expand f a b = tabulate ((++) (shape a) (shape b)) (\i -> f (index a (take r i)) (index b (drop r i)))
+expand f a b = tabulate ((++) (shapeList a) (shapeList b)) (\i -> f (index a (List.take r i)) (index b (List.drop r i)))
   where
-    r = rank (shape a)
+    r = rank (shapeList a)
 
 -- | Like expand, but permutes the first array first, rather than the second.
 --
@@ -627,9 +667,9 @@ expandr ::
   Array a ->
   Array b ->
   Array c
-expandr f a b = tabulate ((++) (shape a) (shape b)) (\i -> f (index a (drop r i)) (index b (take r i)))
+expandr f a b = tabulate ((++) (shapeList a) (shapeList b)) (\i -> f (index a (List.drop r i)) (index b (List.take r i)))
   where
-    r = rank (shape a)
+    r = rank (shapeList a)
 
 -- | Apply an array of functions to each array of values.
 --
@@ -652,9 +692,9 @@ apply ::
   Array (a -> b) ->
   Array a ->
   Array b
-apply f a = tabulate ((++) (shape f) (shape a)) (\i -> index f (take r i) (index a (drop r i)))
+apply f a = tabulate ((++) (shapeList f) (shapeList a)) (\i -> index f (List.take r i) (index a (List.drop r i)))
   where
-    r = rank (shape f)
+    r = rank (shapeList f)
 
 -- | Contract an array by applying the supplied (folding) function on diagonal elements of the dimensions.
 --
@@ -687,7 +727,7 @@ contract f xs a = f . diag <$> extractsExcept xs a
 -- 14
 --
 -- matrix-vector multiplication
--- Note that an `Array Int` with shape [3] is neither a row vector nor column vector. `dot` is not turning the vector into a matrix and then using matrix multiplication.
+-- Note that an `Array Int` with shapeList [3] is neither a row vector nor column vector. `dot` is not turning the vector into a matrix and then using matrix multiplication.
 --
 -- >>> dot sum (*) v b
 -- [9, 12, 15]
@@ -702,7 +742,7 @@ dot ::
   Array d
 dot f g a b = contract f [rank sa - 1, rank sa] (expand g a b)
   where
-    sa = shape a
+    sa = shapeList a
 
 -- | Array multiplication.
 --
@@ -754,7 +794,7 @@ slice pss a = tabulate (ranks pss) go
 -- | Remove single dimensions.
 --
 -- >>> let a' = fromFlatList [2,1,3,4,1] [1..24] :: Array Int
--- >>> shape $ squeeze a'
+-- >>> shapeList $ squeeze a'
 -- [2,3,4]
 squeeze ::
   Array a ->
