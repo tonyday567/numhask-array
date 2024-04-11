@@ -1,6 +1,10 @@
--- |
+{-# LANGUAGE RebindableSyntax #-}
 
-module NumHask.Array.Sort where
+-- |
+module NumHask.Array.Sort
+  ( orderV,
+    orderByV,
+  ) where
 
 import NumHask.Prelude
 import Data.Ord (comparing)
@@ -13,8 +17,8 @@ import qualified Data.Vector as V
 --
 -- >>> λ> Sort.order (V.fromList [0..5::Int])
 -- [0,1,2,3,4,5]
-order :: (Ord a) => Vector a -> Vector Int
-order a = idx
+orderV :: (Ord a) => Vector a -> Vector Int
+orderV a = idx
     where
     idx  = convert $ modify (sortBy comp) init0
     comp = comparing $ unsafeIndex a  -- comparing function
@@ -24,8 +28,8 @@ order a = idx
 --
 -- >>> λ> Sort.order (V.fromList [0..5::Int])
 -- [0,1,2,3,4,5]
-orderBy :: (Ord b) => (a -> b) -> Vector a -> Vector Int
-orderBy c a = idx
+orderByV :: (Ord b) => (a -> b) -> Vector a -> Vector Int
+orderByV c a = idx
     where
     idx  = convert $ modify (sortBy comp) init0
     comp = comparing $ c . unsafeIndex a  -- comparing function

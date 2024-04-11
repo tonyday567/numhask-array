@@ -73,6 +73,9 @@ module NumHask.Array.Dynamic
     takes',
     drops',
     liftR2_,
+    transpose,
+    order,
+    orderBy
   )
 where
 
@@ -82,6 +85,7 @@ import GHC.Show (Show (..))
 import NumHask.Array.Shape
 import NumHask.Prelude as P
 import Data.Bifunctor qualified as B
+import NumHask.Array.Sort
 
 -- $setup
 -- >>> :m -Prelude
@@ -276,9 +280,6 @@ liftR2_ f x x' = either error id (liftR2 f x x')
 
 isEmpty :: Array a -> Bool
 isEmpty = (zero==) . size . shapeList
-
-tail' :: Array a -> Array a
-tail' a = undefined
 
 -- | Takes the top-most elements according to the new dimension.
 --
@@ -864,3 +865,21 @@ mmult (Array sx x) (Array sy y) = tabulate [m, n] go
     (m : k : _) = sx
     (_ : n : _) = sy
 {-# INLINE mmult #-}
+
+-- |
+-- >>> D.transpose (fromFlatList [2,2,2] [1..8])
+--
+-- FIXME: huihua example transposes 001 to 010. A 1 rotation.
+-- This transposes 001 to 100
+-- | Reverse indices eg transposes the element A/ijk/ to A/kji/.
+--
+-- >>> index (transpose a) [1,0,0] == index a [0,0,1]
+-- True
+transpose :: Array a -> Array a
+transpose a = tabulate (List.reverse $ shapeList a) (index a . List.reverse)
+
+order :: (Ord a) => Array a -> Array Int
+order (Array s v) = Array s (orderV v)
+
+orderBy :: (Ord b) => (a -> b) -> Array a -> Array Int
+orderBy c (Array s v) = Array s (orderByV c v)
