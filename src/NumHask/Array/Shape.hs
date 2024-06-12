@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -5,7 +6,9 @@
 
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
-  ( Shape (..),
+  ( ShapeP (..),
+    shapeT,
+    Shape (..),
     HasShape (..),
     type (++),
     type (!!),
@@ -75,6 +78,7 @@ import Data.Type.Bool
 import Data.Type.Equality
 import GHC.TypeLits as L
 import NumHask.Prelude as P hiding (Last, minimum)
+import Prelude qualified
 
 -- $setup
 -- >>> :m -Prelude
@@ -84,6 +88,45 @@ import NumHask.Prelude as P hiding (Last, minimum)
 -- >>> :set -XFlexibleContexts
 -- >>> :set -XRebindableSyntax
 -- >>> import NumHask.Prelude
+
+class ShapeP (s :: [Nat]) where
+  shapeP :: Proxy s -> [Int]
+  sizeP  :: Proxy s -> Int
+
+instance ShapeP '[] where
+  {-# INLINE shapeP #-}
+  shapeP _ = []
+  {-# INLINE sizeP #-}
+  sizeP  _ = 1
+
+-- | Get the value of a type level Nat.
+-- Use with explicit type application, i.e., @valueOf \@42@
+{-# INLINE valueOf #-}
+valueOf :: forall n i . (KnownNat n, Num i) => i
+valueOf = Prelude.fromInteger $ natVal (Proxy :: Proxy n)
+
+instance forall n s . (ShapeP s, KnownNat n) => ShapeP (n ': s) where
+  {-# INLINE shapeP #-}
+  shapeP _ = valueOf @n : shapeP (Proxy :: Proxy s)
+  {-# INLINE sizeP #-}
+  sizeP  _ = valueOf @n * sizeP  (Proxy :: Proxy s)
+
+{-# INLINE shapeT #-}
+shapeT :: forall sh . (ShapeP sh) => [Int]
+shapeT = shapeP (Proxy :: Proxy sh)
+
+-- | Turn a dynamic shape back into a type level shape.
+-- @withShape sh shapeP == sh@
+withShapeP :: [Int] -> (forall sh . (ShapeP sh) => Proxy sh -> r) -> r
+withShapeP [] f = f (Proxy :: Proxy ('[] :: [Nat]))
+withShapeP (n:ns) f =
+  case someNatVal (Prelude.toInteger n) of
+    Just (SomeNat (_ :: Proxy n)) -> withShapeP ns (\ (_ :: Proxy ns) -> f (Proxy :: Proxy (n ': ns)))
+    _ -> error $ "withShape: bad size " ++ show n
+
+withShape :: [Int] -> (forall sh . (ShapeP sh) => r) -> r
+withShape sh f = withShapeP sh (\ (_ :: Proxy sh) -> f @sh)
+
 
 -- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
 -- Using [Int] as the index for an array nicely represents the practical interests and constraints downstream of this high-level API: densely-packed numbers (reals or integrals), indexed and layered.
@@ -240,7 +283,7 @@ type AddIndex s i d = Take i s ++ (d : Drop i s)
 -- | reverse an index along specific dimensions.
 --
 -- >>> reverseIndex [0] [2,3,4] [0,1,2]
--- [1,1,2]
+-- [1,1,0]
 reverseIndex :: [Int] -> [Int] -> [Int] -> [Int]
 reverseIndex ds s xs = reverse $
   foldr (\(i,x) acc -> (:acc) $ bool (s!!i - 1 - x) x (i `elem` ds)) [] (zip [0..] xs)
@@ -254,7 +297,7 @@ type family ReverseGo (a :: [k]) (b :: [k]) :: [k] where
 -- | rotate an index along specific dimensions.
 --
 -- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
--- [2,1,2]
+-- [1,1,2]
 rotateIndex :: [(Int,Int)] -> [Int] -> [Int] -> [Int]
 rotateIndex rs s xs = foldr (\(d,r) acc -> modifyIndex d (\x -> (x+r) `mod` s!!d) acc) xs rs
 

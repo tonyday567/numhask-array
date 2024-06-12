@@ -22,11 +22,6 @@ import qualified NumHask.Array.Fixed as F
 import qualified NumHask.Array.Dynamic as D
 #+end_src
 
-<<<<<<< HEAD
-* Development
-
-#+begin_src haskell :results output :exports both
-=======
 * recip development
 
 'chol' uses the [[https://en.wikipedia.org/wiki/Cholesky_decomposition#The_Cholesky_algorithm][Cholesky-Crout]] algorithm.
@@ -34,23 +29,20 @@ import qualified NumHask.Array.Dynamic as D
 #+begin_src haskell-ng :results output :exports both
 >>>>>>> 50f9423 (shapeList and :|)
 :r
-:set prompt "> "
 :set -Wno-type-defaults
 :set -Wno-unused-do-bind
 :set -Wno-name-shadowing
 :set -XOverloadedStrings
 :set -XOverloadedLabels
 :set -XRebindableSyntax
-:set -XNoImplicitPrelude
 :set -XDataKinds
 import Data.Functor.Rep
 import NumHask.Prelude
-import NumHask.Array.Fixed
-import NumHask.Array.Shape
-import Data.FormatN
+import NumHask.Array.Fixed qualified as F
+import NumHask.Array.Shape qualified as S
+import NumHask.Array.Dynamic qualified as D
 putStrLn "ok"
 #+end_src
-
 
 ** Cholesky decomposition
 
@@ -94,6 +86,45 @@ fmap (fixed (Just 3)) (dot sum (*) b (recip b))
 * dyno development
 
 #+begin_src haskell-ng :results output
+import NumHask.Prelude
 import NumHask.Array.Dynamic qualified as D
 
 #+end_src
+
+#+RESULTS:
+
+#+begin_src haskell-ng :results output
+let a = D.fromFlatList [2,3,4] [1..24] :: D.Array Int
+a
+#+end_src
+
+#+RESULTS:
+: [[[1, 2, 3, 4],
+:   [5, 6, 7, 8],
+:   [9, 10, 11, 12]],
+:  [[13, 14, 15, 16],
+:   [17, 18, 19, 20],
+:   [21, 22, 23, 24]]]
+
+** fixed
+
+#+begin_src haskell-ng :results output
+:set -XPolyKinds
+:t Array @[2,3]
+
+#+end_src
+
+#+RESULTS:
+: Array @[2,3] :: Data.Vector.Vector a -> Array [2, 3] a
+
+#+begin_src haskell-ng :results output
+fromList [1..24] :: Array [2,3,4] Int
+#+end_src
+
+#+RESULTS:
+: [[[1, 2, 3, 4],
+:   [5, 6, 7, 8],
+:   [9, 10, 11, 12]],
+:  [[13, 14, 15, 16],
+:   [17, 18, 19, 20],
+:   [21, 22, 23, 24]]]
