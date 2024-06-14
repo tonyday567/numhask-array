@@ -16,7 +16,6 @@ import qualified Data.Vector as V
 -- $setup
 -- >>> import Data.Vector qualified as V
 -- >>> :set -XDataKinds
--- >>> :set -XOverloadedLists
 -- >>> :set -XTypeFamilies
 -- >>> :set -XFlexibleContexts
 -- >>> :set -XRebindableSyntax

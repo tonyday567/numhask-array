@@ -314,12 +314,13 @@ size  = S.size . shape
 
 -- | convert to a dynamic array with shape at the value level.
 toDynamic :: (HasShape s) => Array s a -> D.Array a
-toDynamic a = D.fromFlatList (shape a) (toList a)
+toDynamic a = D.array (shape a) (toList a)
 
 -- | Use a dynamic array in a fixed context.
 --
 -- >>> import qualified NumHask.Array.Dynamic as D
--- >>> pretty $ with (D.fromFlatList [2,3,4] [1..24]) (selects (Proxy :: Proxy '[0,1]) [1,1] :: Array '[2,3,4] Int -> Array '[4] Int)
+-- >>> d = D.array ([2,3,4]::[Int]) ([1..24] :: [Int]) :: D.Array Int
+-- >>> pretty $ with d (selects (Proxy :: Proxy '[0,1]) [1,1] :: Array '[2,3,4] Int -> Array '[4] Int)
 -- [17,18,19,20]
 with ::
   forall a r s.
@@ -327,7 +328,7 @@ with ::
   D.Array a ->
   (Array s a -> r) ->
   r
-with (D.Array _ v) f = f (UnsafeArray v)
+with (D.UnsafeArray _ v) f = f (UnsafeArray v)
 
 -- | Takes the top-most elements according to the new dimension.
 --
@@ -397,11 +398,6 @@ indices = tabulate id
 --  [0,0]]
 ident :: forall a s. (HasShape s, Additive a, Multiplicative a) => Array s a
 ident = tabulate (bool zero one . isDiag)
-  where
-    isDiag [] = True
-    isDiag [_] = True
-    isDiag [x, y] = x == y
-    isDiag (x : y : xs) = x == y && isDiag (y : xs)
 
 -- | An array of sequential Ints
 --

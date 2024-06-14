@@ -10,6 +10,7 @@ module NumHask.Array.Shape
     shapeT,
     Shape (..),
     HasShape (..),
+    isDiag,
     type (++),
     type (!!),
     Take,
@@ -202,6 +203,12 @@ shapen ns x =
       ns
 {-# INLINE shapen #-}
 
+isDiag :: Eq a => [a] -> Bool
+isDiag [] = True
+isDiag [_] = True
+isDiag [x, y] = x == y
+isDiag (x : y : xs) = x == y && isDiag (y : xs)
+
 -- | /checkIndex i n/ checks if /i/ is a valid index of a list of length /n/
 checkIndex :: Int -> Int -> Bool
 checkIndex i n = zero <= i && i + one <= n
@@ -283,10 +290,9 @@ type AddIndex s i d = Take i s ++ (d : Drop i s)
 -- | reverse an index along specific dimensions.
 --
 -- >>> reverseIndex [0] [2,3,4] [0,1,2]
--- [1,1,0]
+-- [1,1,2]
 reverseIndex :: [Int] -> [Int] -> [Int] -> [Int]
-reverseIndex ds s xs = reverse $
-  foldr (\(i,x) acc -> (:acc) $ bool (s!!i - 1 - x) x (i `elem` ds)) [] (zip [0..] xs)
+reverseIndex ds ns xs = fmap (\(i,x,n) -> bool x (n-1-x) (i `elem` ds)) (zip3 [0..] xs ns)
 
 type Reverse (a :: [k]) = ReverseGo a '[]
 
