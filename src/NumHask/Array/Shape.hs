@@ -41,6 +41,7 @@ module NumHask.Array.Shape
     AddIndex,
     dropIndex,
     DropIndex,
+    replaceIndex,
     posRelative,
     PosRelative,
     PosRelativeGo,
@@ -48,6 +49,8 @@ module NumHask.Array.Shape
     addIndexes,
     AddIndexes,
     AddIndexesGo,
+    replaceIndexes,
+    modifyIndexes,
     dropIndexes,
     DropIndexes,
     DropIndexesGo,
@@ -287,6 +290,13 @@ addIndex s i d = take i s ++ (d : drop i s)
 
 type AddIndex s i d = Take i s ++ (d : Drop i s)
 
+-- | replace an index at a specific dimension.
+--
+-- >>> replaceIndex 0 1 [2,3,4]
+-- [1,3,4]
+replaceIndex :: Int -> Int -> [Int] -> [Int]
+replaceIndex d x xs = take d xs <> [x] <> drop (d+1) xs
+
 -- | reverse an index along specific dimensions.
 --
 -- >>> reverseIndex [0] [2,3,4] [0,1,2]
@@ -349,6 +359,8 @@ type family DecMap (x :: Nat) (ys :: [Nat]) :: [Nat] where
 dropIndexes :: [Int] -> [Int] -> [Int]
 dropIndexes s i = foldl' dropIndex s (posRelative i)
 
+
+
 type family DropIndexes (s :: [Nat]) (i :: [Nat]) where
   DropIndexes s i = DropIndexesGo s (PosRelative i)
 
@@ -374,6 +386,20 @@ type family AddIndexesGo (as :: [Nat]) (xs :: [Nat]) (ys :: [Nat]) where
   AddIndexesGo as' '[] _ = as'
   AddIndexesGo as' (x : xs') (y : ys') = AddIndexesGo (AddIndex as' x y) xs' ys'
   AddIndexesGo _ _ _ = L.TypeError ('Text "mismatched ranks")
+
+-- | replace indexes with a new value according to a dimension list.
+--
+-- >>> replaceIndexes [0,1] [1,5] [2,3,4]
+-- [1,5,4]
+replaceIndexes :: [Int] -> [Int] -> [Int] -> [Int]
+replaceIndexes ds xs ns = foldl' (\ns' (d,x) -> replaceIndex d x ns') ns (zip ds xs)
+
+-- | modify indexes with (separate) functions according to a dimension list.
+--
+-- >>> modifyIndexes [0,1] [(+1), (+5)] [2,3,4]
+-- [3,8,4]
+modifyIndexes :: [Int] -> [(Int -> Int)] -> [Int] -> [Int]
+modifyIndexes ds fs ns = foldl' (\ns' (d,f) -> modifyIndex d f ns') ns (zip ds fs)
 
 -- | take list of dimensions according to position lists.
 --
