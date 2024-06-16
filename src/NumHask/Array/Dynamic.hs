@@ -16,14 +16,16 @@ module NumHask.Array.Dynamic
     FromVector (..),
     FromArray (..),
     array,
+    (><),
     validate,
     safeArray,
+    def,
 
     -- * Shape interogation
     shape,
     rank,
     size,
-    null,
+    isNull,
 
     -- * indexing
     index,
@@ -32,6 +34,7 @@ module NumHask.Array.Dynamic
     flatten,
     shapen,
     shapenA,
+    backpermute,
 
     -- Scalar conversions
     fromScalar,
@@ -46,9 +49,15 @@ module NumHask.Array.Dynamic
     konst,
     singleton,
     takes,
+    takeD,
+    takeDs,
     drops,
+    dropD,
+    dropDs,
+    selectD,
     selects,
     folds,
+    traverses,
     extracts,
     extractsExcept,
     joins,
@@ -62,18 +71,19 @@ module NumHask.Array.Dynamic
     dot,
     mult,
     slice,
-    slice',
+    sliceD,
 
     -- * shape manipulations
     reorder,
     reshape,
-    reshapeFill,
+    reshapeDef,
     squeeze,
     stretch,
     reverses,
     rotates,
     transpose,
 
+    -- * sorting
     order,
     orderBy,
 
@@ -83,6 +93,7 @@ module NumHask.Array.Dynamic
     take,
     drop,
     zip,
+    zipWith,
 
     -- * column specializations
     col,
@@ -102,7 +113,7 @@ where
 
 import Data.List qualified as List
 import Data.Vector qualified as V
-import NumHask.Prelude as P hiding (take, drop, zip, null, length, Scalar)
+import NumHask.Prelude as P hiding (take, drop, zip, zipWith, length)
 import NumHask.Array.Sort
 import NumHask.Array.Shape qualified as S
 import Prettyprinter hiding (dot)
@@ -212,54 +223,116 @@ instance FromArray (V.Vector a) a where
   asArray v = UnsafeArray (V.singleton (V.length v)) v
   arrayAs (UnsafeArray _ v) = v
 
--- | Construct an array from shape and value vectors without any shape validation
+-- | Polymorphic constructor of an array from shape and value vectors without any shape validation
 --
 -- >>> array [2,3,4] [1..24] == a
 -- True
 array :: FromVector u Int => FromVector t a => u -> t -> Array a
 array (asVector -> s) (asVector -> v) = UnsafeArray s v
 
+infixl 4 ><
+
+-- | Construct an Array.
+--
+-- >>> pretty $ [2,3] >< [0..5]
+-- [[0,1,2],
+--  [3,4,5]]
+(><) :: FromVector u Int => FromVector t a => u -> t -> Array a
+(><) = array
+
+-- | Validate the size and shape of an array.
+--
+-- >>> validate (array [2,3,4] [1..23] :: Array Int)
+-- False
 validate :: Array a -> Bool
 validate a = V.product (shape a) == V.length (asVector a)
 
+-- | Construct an Array, checking shape.
+--
+-- >>> safeArray [2,3,4] [1..24] == Just a
+-- True
 safeArray :: FromVector u Int => FromVector t a => u -> t -> Maybe (Array a)
 safeArray s v =
   bool Nothing (Just a) (validate a)
   where
     a = UnsafeArray (asVector s) (asVector v)
 
+-- | Fill an array with the supplied value or cut the array values to match shape.
+--
+-- > validate (def x a) == True
+--
+-- >>> pretty $ def 0 (array [3] [])
+-- [0,0,0]
+-- >>> pretty $ def 0 (array [3] [1..4])
+-- [1,2,3]
+def :: a -> Array a -> Array a
+def x (UnsafeArray s v) = UnsafeArray s (V.take (V.product s) (v <> V.replicate (V.product s - (V.length v)) x))
+
+-- | shape of an Array
+--
+-- >>> shape a :: [Int]
+-- [2,3,4]
+--
+-- >>> shape a :: Array Int
+-- UnsafeArray [3] [2,3,4]
 shape :: FromVector u Int => Array a -> u
 shape (UnsafeArray s _) = vectorAs s
 
+
+-- | rank of an Array
+--
+-- >>> rank a
+-- 3
 rank :: Array a -> Int
 rank = V.length . shape
 
+-- | size of an Array, which is the total number of elements, if the Array is valid.
+--
+-- >>> size a
+-- 24
 size :: Array a -> Int
 size = V.product . shape
 
-null :: Array a -> Bool
-null = (zero==) . size
+-- | Is the Array empty, has zero number of elements.
+--
+-- >>> isNull ([2,0] >< [] :: Array ())
+-- True
+-- >>> isNull ([] >< [4] :: Array Int)
+-- False
+isNull :: Array a -> Bool
+isNull = (zero==) . size
 
 flattenV :: V.Vector Int -> V.Vector Int -> Int
 flattenV ns xs = V.sum $ V.zipWith (*) xs (V.drop 1 $ V.scanr (*) one ns)
 
 shapenV :: V.Vector Int -> Int -> V.Vector Int
-shapenV ns x = V.fromList $ S.shapen (V.toList ns) x
+shapenV ns x = V.fromList $ S.shapenL (V.toList ns) x
 
+-- | convert from a shape index to a flat index
+--
+-- >>> flatten [2,3,4] [1,1,1]
+-- 17
+--
+-- >>> flatten [] [1,1,1]
+-- 0
 flatten :: (FromVector u Int) => u -> u -> Int
 flatten ns xs = flattenV (asVector ns) (asVector xs)
 
+-- | convert from a flat index to a shape index
+--
+-- >>> shapen [2,3,4] 17
+-- [1,1,1]
 shapen :: (FromVector u Int) => u -> Int -> u
 shapen ns x = vectorAs $ shapenV (asVector ns) x
 
--- | shapenA preserves the shape information of the shaped index. Practically this is needed to distinguish between a scalar and a 1-element array.
+-- | shapenA is a variation of shapen that preserves the shape information of the shaped index. Practically this is needed to distinguish between a scalar and a 1-element array.
 --
 -- >>> shapenA (toScalar 3) 2
 -- UnsafeArray [] [2]
 -- >>> shapenA (array [1] [3]) 2
 -- UnsafeArray [1] [2]
-shapenA :: (FromArray u Int) => u -> Int -> u
-shapenA ns x = arrayAs $ UnsafeArray (shape $ asArray ns) (shapenV (arrayAs $ asArray ns) x)
+shapenA :: Array Int -> Int -> Array Int
+shapenA ns x = UnsafeArray (shape ns) (shapenV (arrayAs ns) x)
 
 -- | extract an element at index /i/
 --
@@ -268,7 +341,7 @@ shapenA ns x = arrayAs $ UnsafeArray (shape $ asArray ns) (shapenV (arrayAs $ as
 index :: (FromVector u Int) => Array a -> u -> a
 index (UnsafeArray s v) i = V.unsafeIndex v (flatten s (asVector i))
 
--- | tabulate an array with a generating function
+-- | tabulate an array supplying a shape and a generating function
 --
 -- >>> tabulate [2,3,4] ((1+) . flatten [2,3,4]) == a
 -- True
@@ -278,12 +351,15 @@ tabulate ds f =
 
 -- | tabulate an array with a generating function, with the shape supplied as an Array
 --
-tabulateA :: (FromArray u Int, FromVector u Int) => u -> (u -> a) -> Array a
+tabulateA :: Array Int -> (Array Int -> a) -> Array a
 tabulateA ds f =
   UnsafeArray (asVector ds) (V.generate (V.product (asVector ds)) (\i -> f (shapenA ds i)))
 
+-- | This might be very similar to dist from distributive2
+backpermute :: FromVector u Int => (u -> u) -> Array a -> Array a
+backpermute f a = tabulate (f (shape a)) (index a . f)
 
--- | Unwrapping scalars is probably a performance bottleneck.
+-- | Extract a value from a scalar. Unwrapping scalars is probably a performance bottleneck.
 --
 -- >>> let s = array [] [3] :: Array Int
 -- >>> fromScalar s
@@ -334,6 +410,38 @@ takes ts a = tabulate dsNew $ \s -> index a (V.zipWith3 (\d' s' a' -> bool s' (s
     xs = vectorAs $ V.map snd (asVector ts)
     xsAbs = vectorAs (V.map abs (asVector xs))
 
+-- | Take the top-most elements across the specified dimension. Negative values take the bottom-most.
+--
+-- > takeD d x == takes [(d,x)]
+--
+-- >>> pretty $ takeD 2 1 a
+-- [[[1],
+--   [5],
+--   [9]],
+--  [[13],
+--   [17],
+--   [21]]]
+takeD ::
+  Int ->
+  Int ->
+  Array a ->
+  Array a
+takeD d t a = tabulate dsNew $ \s -> index a (S.modifyIndex d (\x -> x + bool 0 (d'+t) (t<0)) s)
+  where
+    dsNew = S.replaceIndex d (abs t) (shape a)
+    d' = shape a !! d
+
+-- | A fold of takeD. May be slower than takes.
+--
+-- >>> pretty $ takeDs [(0,1), (1,2), (2,-3)] a
+-- [[[2,3,4],
+--   [6,7,8]]]
+takeDs ::
+  [(Int,Int)] ->
+  Array a ->
+  Array a
+takeDs ts a = foldl' (\a' (d,t) -> takeD d t a') a ts
+
 -- | Drops the top-most elements. Negative values drop the bottom-most.
 --
 -- >>> pretty $ drops [(0,1), (1,2), (2,-3)] a
@@ -351,17 +459,46 @@ drops ts a = tabulate dsNew $ \s -> index a (V.zipWith (\d' s' -> bool (d' + s')
     xs = vectorAs $ V.map snd (asVector ts)
     xsAbs = vectorAs (V.map abs (asVector xs))
 
--- | reshape an array, supplying a default value for elements outside the dimensions of the old array.
+-- | Drop the top-most elements across the specified dimension. Negative values take the bottom-most.
 --
-reshapeFill ::
-  (FromVector u Int) =>
-  u ->
-  a ->
+-- >>> pretty $ dropD 2 2 a
+-- [[[3,4],
+--   [7,8],
+--   [11,12]],
+--  [[15,16],
+--   [19,20],
+--   [23,24]]]
+dropD ::
+  Int ->
+  Int ->
   Array a ->
   Array a
-reshapeFill s def a = tabulate s (\xs -> bool def (index a xs) (inside (asVector xs) (shape a)) )
+dropD d t a = tabulate dsNew $ \s -> index a (S.modifyIndex d (\x -> x + bool t 0 (t<0)) s)
   where
-    inside x y = all id (V.zipWith (<) x y)
+    dsNew = S.replaceIndex d (d' - abs t) (shape a)
+    d' = shape a !! d
+
+-- | A fold of takeD. May be slower than takes.
+--
+-- >>> pretty $ dropDs [(0,1), (1,2), (2,-3)] a
+-- [[[21]]]
+dropDs ::
+  [(Int,Int)] ->
+  Array a ->
+  Array a
+dropDs ts a = foldl' (\a' (d,t) -> dropD d t a') a ts
+
+-- | reshape an array, supplying a default value for elements outside the shape of the old array.
+--
+-- >>> reshapeDef 0 [5] (array [4] [0..3] :: Array Int)
+-- UnsafeArray [5] [0,1,2,3,0]
+reshapeDef ::
+  (FromVector u Int) =>
+  a ->
+  u ->
+  Array a ->
+  Array a
+reshapeDef d s' (UnsafeArray _ v) = def d (UnsafeArray (asVector s') v)
 
 -- | Reshape an array (with the same number of elements).
 --
@@ -385,6 +522,12 @@ reshape ::
   Array a
 reshape s a = tabulate s (index @(V.Vector Int) a . shapen (shape a) . flatten s)
 
+-- | Rotate an array according to dimension, length tuples.
+--
+-- >>> let x = array [2,3] [0..5] :: Array Int
+-- >>> pretty $ rotates [(0,1),(1,1)] x
+-- [[4,5,3],
+--  [1,2,0]]
 rotates ::
   [(Int,Int)] ->
   Array a ->
@@ -399,7 +542,6 @@ rotates rs a = tabulate (shape a) (index a . S.rotateIndex rs (shape a))
 --  [0,0]]
 ident :: (Additive a, Multiplicative a, FromVector u Int) => u -> Array a
 ident ds = tabulate ds (bool zero one . S.isDiag . vectorAs . asVector)
-
 
 -- | Extract the diagonal of an array.
 --
@@ -446,7 +588,22 @@ konst ds a = tabulate ds (const a)
 singleton :: a -> Array a
 singleton a = UnsafeArray (V.singleton 1) (V.singleton a)
 
--- | Select (dimension,index) pairs.
+-- | Select by dimension & index.
+--
+-- >>> let s = selectD 2 3 a
+-- >>> pretty s
+-- [[4,8,12],
+--  [16,20,24]]
+selectD ::
+  Int ->
+  Int ->
+  Array a ->
+  Array a
+selectD d x a = tabulate (S.dropIndex (shape a) d) go
+  where
+    go s = index a (S.addIndex s d x)
+
+-- | Select by (dimension,index) pairs.
 --
 -- >>> let s = selects [(0,1),(1,1)] a
 -- >>> pretty s
@@ -466,6 +623,9 @@ selects ds a = tabulate (S.dropIndexes (shape a) ds') go
 --
 -- >>> pretty $ folds [1] sum a
 -- [68,100,132]
+-- >>> pretty $ folds [0,1] sum a
+-- [[10,26,42],
+--  [58,74,90]]
 folds ::
   [Int] ->
   (Array a -> b) ->
@@ -474,6 +634,16 @@ folds ::
 folds ds f a = tabulate (S.takeIndexes (shape a) ds) go
   where
     go s = f (selects (List.zip ds s) a)
+
+-- | Traverse along specified dimensions.
+--
+traverses ::
+  (Applicative f) =>
+  [Int] ->
+  (a -> f b) ->
+  Array a ->
+  f (Array b)
+traverses ds f a = fmap join $ sequenceA $ fmap (traverse f) (extracts ds a)
 
 -- | Extracts dimensions to an outer layer.
 --
@@ -684,7 +854,7 @@ expandr f a b = tabulate (shape a <> shape b) (\i -> f (index a (List.drop r i))
 
 -- | Contract an array by applying the supplied (folding) function on diagonal elements of the dimensions.
 --
--- This generalises a tensor contraction by allowing the number of contracting diagonals to be other than 2, and allowing a binary operator other than multiplication.
+-- This generalises a tensor contraction by allowing the number of contracting diagonals to be other than 2.
 --
 -- >>> let b = array [2,3] [1..6] :: Array Int
 -- >>> pretty $ contract sum [1,2] (expand (*) b (transpose b))
@@ -775,11 +945,11 @@ slice ::
   Array a
 slice pss a = tabulate (S.ranks pss) go
   where
-    go s = index a (zipWith (!!) pss s)
+    go s = index a (List.zipWith (!!) pss s)
 
 -- | Slice along a dimension.
 --
--- >>> let s = slice' 2 1 2 a
+-- >>> let s = sliceD 2 1 2 a
 -- >>> pretty s
 -- [[[2,3],
 --   [6,7],
@@ -787,13 +957,13 @@ slice pss a = tabulate (S.ranks pss) go
 --  [[14,15],
 --   [18,19],
 --   [22,23]]]
-slice' ::
+sliceD ::
   Int ->
   Int ->
   Int ->
   Array a ->
   Array a
-slice' d offset l a = takes [(d,l)] $ drops [(d,offset)] a
+sliceD d offset l a = takes [(d,l)] $ drops [(d,offset)] a
 
 
 -- | Remove single dimensions.
@@ -869,6 +1039,9 @@ drop n a = drops [(0,n)] a
 
 zip :: Array a -> Array b -> Array (a,b)
 zip (a :| as) (b :| bs) = zipE a b :| zipE as bs
+
+zipWith :: (a -> b -> c) -> Array a -> Array b -> Array c
+zipWith f (a :| as) (b :| bs) = zipWithE f a b :| zipWithE f as bs
 
 -- * column (last dimension) specizations
 

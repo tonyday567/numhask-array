@@ -26,8 +26,8 @@ module NumHask.Array.Shape
     Size,
     dimension,
     Dimension,
-    flatten,
-    shapen,
+    flattenL,
+    shapenL,
     minimum,
     Minimum,
     checkIndex,
@@ -174,28 +174,28 @@ type family Size (s :: [Nat]) :: Nat where
   Size '[] = 1
   Size (n : s) = n L.* Size s
 
--- | convert from n-dim shape index to a flat index
+-- | convert from n-dim shape list index to a flat index
 --
--- >>> flatten [2,3,4] [1,1,1]
+-- >>> flattenL [2,3,4] [1,1,1]
 -- 17
 --
--- >>> flatten [] [1,1,1]
+-- >>> flattenL [] [1,1,1]
 -- 0
-flatten :: [Int] -> [Int] -> Int
-flatten [] _ = 0
-flatten _ [x'] = x'
-flatten ns xs = sum $ zipWith (*) xs (drop 1 $ scanr (*) one ns)
-{-# INLINE flatten #-}
+flattenL :: [Int] -> [Int] -> Int
+flattenL [] _ = 0
+flattenL _ [x'] = x'
+flattenL ns xs = sum $ zipWith (*) xs (drop 1 $ scanr (*) one ns)
+{-# INLINE flattenL #-}
 
 -- | convert from a flat index to a shape index
 --
--- >>> shapen [2,3,4] 17
+-- >>> shapenL [2,3,4] 17
 -- [1,1,1]
-shapen :: [Int] -> Int -> [Int]
-shapen [] _ = []
-shapen [_] x' = [x']
-shapen [_, y] x' = let (i, j) = divMod x' y in [i, j]
-shapen ns x =
+shapenL :: [Int] -> Int -> [Int]
+shapenL [] _ = []
+shapenL [_] x' = [x']
+shapenL [_, y] x' = let (i, j) = divMod x' y in [i, j]
+shapenL ns x =
   fst $
     foldr
       ( \a (acc, r) ->
@@ -204,7 +204,7 @@ shapen ns x =
       )
       ([], x)
       ns
-{-# INLINE shapen #-}
+{-# INLINE shapenL #-}
 
 isDiag :: Eq a => [a] -> Bool
 isDiag [] = True

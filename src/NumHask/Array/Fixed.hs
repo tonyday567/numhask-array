@@ -164,12 +164,12 @@ instance
   type Rep (Array s) = [Int]
 
   tabulate f =
-    UnsafeArray . V.generate (S.size s) $ (f . shapen s)
+    UnsafeArray . V.generate (S.size s) $ (f . shapenL s)
     where
       s = shapeVal $ toShape @s
   {-# INLINE tabulate #-}
 
-  index (Array v) i = V.unsafeIndex v (flatten s i)
+  index (Array v) i = V.unsafeIndex v (flattenL s i)
     where
       s = shapeVal (toShape @s)
   {-# INLINE index #-}
@@ -196,12 +196,12 @@ instance
   type Rep (Array' s) = Array '[Rank s] Int
 
   tabulate f =
-    UnsafeArray' . V.generate (S.size s) $ (f . fromList . shapen s)
+    UnsafeArray' . V.generate (S.size s) $ (f . fromList . shapenL s)
     where
       s = shapeVal $ toShape @s
   {-# INLINE tabulate #-}
 
-  index (UnsafeArray' v) i = V.unsafeIndex v (flatten s (toList i))
+  index (UnsafeArray' v) i = V.unsafeIndex v (flattenL s (toList i))
     where
       s = shapeVal (toShape @s)
   {-# INLINE index #-}
@@ -369,7 +369,7 @@ reshape ::
   ) =>
   Array s a ->
   Array s' a
-reshape a = tabulate (index a . shapen s . flatten s')
+reshape a = tabulate (index a . shapenL s . flattenL s')
   where
     s = shapeVal (toShape @s)
     s' = shapeVal (toShape @s')
