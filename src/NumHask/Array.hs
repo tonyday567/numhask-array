@@ -11,7 +11,7 @@ module NumHask.Array
 where
 
 import NumHask.Array.Fixed
-import NumHask.Array.Shape hiding (size, rank)
+import NumHask.Array.Shape hiding (size, rank, concatenate, reorder, squeeze)
 
 -- $imports
 --

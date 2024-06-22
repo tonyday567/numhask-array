@@ -42,10 +42,10 @@ module NumHask.Array.Fixed
     extractsExcept,
     joins,
     maps,
-    concatenate,
+    NumHask.Array.Fixed.concatenate,
     insert,
     append,
-    reorder,
+    NumHask.Array.Fixed.reorder,
     reverses,
     rotates,
     expand,
@@ -55,8 +55,7 @@ module NumHask.Array.Fixed
     dot,
     mult,
     slice,
-    squeeze,
-
+    NumHask.Array.Fixed.squeeze,
 
     -- * Vector specialisations.
     Vector,
@@ -597,7 +596,7 @@ joins ::
   Array st a
 joins _ a = tabulate go
   where
-    go s = index (index a (takeIndexes s ds)) (dropIndexes s ds)
+    go s = index (index a (takeIndexes s ds)) (deleteIndexes s ds)
     ds = shapeVal (toShape @ds)
 
 -- | Maps a function along specified dimensions.
@@ -648,7 +647,7 @@ concatenate _ s0 s1 = tabulate go
         ( index
             s1
             ( addIndex
-                (dropIndex s d)
+                (deleteIndex s d)
                 d
                 ((s !! d) - (ds0 !! d))
             )
@@ -684,7 +683,7 @@ insert ::
 insert _ _ a b = tabulate go
   where
     go s
-      | s !! d == i = index b (dropIndex s d)
+      | s !! d == i = index b (deleteIndex s d)
       | s !! d < i = index a s
       | otherwise = index a (decAt d s)
     d = fromIntegral $ natVal @d Proxy

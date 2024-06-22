@@ -2,7 +2,9 @@
 
 -- |
 module NumHask.Array.Sort
-  ( orderV,
+  ( sortV,
+    sortByV,
+    orderV,
     orderByV,
   ) where
 
@@ -15,11 +17,26 @@ import qualified Data.Vector as V
 
 -- $setup
 -- >>> import Data.Vector qualified as V
+-- >>> import Data.Ord (Down (..))
 -- >>> :set -XDataKinds
 -- >>> :set -XTypeFamilies
 -- >>> :set -XFlexibleContexts
 -- >>> :set -XRebindableSyntax
 -- >>> import NumHask.Prelude
+
+-- | return the sorted array
+--
+-- >>> sortV (V.fromList [3,1,4,2,0,5::Int])
+-- [0,1,2,3,4,5]
+sortV :: (Ord a) => Vector a -> Vector a
+sortV a = V.unsafeBackpermute a (orderV a)
+
+-- | return the array sorted by the comparison function
+--
+-- >>> sortByV Down (V.fromList [3,1,4,2,0,5::Int])
+-- [5,4,3,2,1,0]
+sortByV :: (Ord b) => (a -> b) -> Vector a -> Vector a
+sortByV c a = V.unsafeBackpermute a (orderByV c a)
 
 -- | returns the indices of the elements in ascending order.
 --
@@ -34,7 +51,6 @@ orderV a = idx
 
 -- | returns the indices of the elements in order given a comparison function.
 --
--- >>> import Data.Ord (Down (..))
 -- >>> orderByV Down (V.fromList [0..5::Int])
 -- [5,4,3,2,1,0]
 orderByV :: (Ord b) => (a -> b) -> Vector a -> Vector Int
