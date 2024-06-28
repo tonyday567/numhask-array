@@ -45,7 +45,7 @@ module NumHask.Array.Dynamic
     fromScalar,
     toScalar,
     isScalar,
-    asDimmed,
+    asSingleton,
     asScalar,
 
     -- * Poly-Dimensional Operators
@@ -75,6 +75,7 @@ module NumHask.Array.Dynamic
     diffs,
     concatenate,
     insert,
+    delete,
     append,
     prepend,
     expand,
@@ -84,14 +85,21 @@ module NumHask.Array.Dynamic
     mult,
     slice,
     sliceD,
+    find,
+    findNoOverlap,
 
     -- * shape manipulations
+    rerank,
     reorder,
     reshape,
-    reshapeDef,
+    pad,
+    repeat,
+    cycle,
     squeeze,
     elongate,
     reverses,
+
+    windows,
     rotates,
     transpose,
     inflate,
@@ -116,6 +124,8 @@ module NumHask.Array.Dynamic
     uncons,
     take,
     drop,
+    rotate,
+    sliceR,
 
     -- * column specializations
     col,
@@ -123,7 +133,8 @@ module NumHask.Array.Dynamic
     -- * element-level specializations
     zipWithE,
     zipWithESafe,
-    diff,
+    modifyE,
+    diffE,
 
     -- * array specializations
     range,
@@ -136,7 +147,7 @@ where
 
 import Data.List qualified as List
 import Data.Vector qualified as V
-import NumHask.Prelude as P hiding (diff, empty, take, drop, zip, zipWith, length)
+import NumHask.Prelude as P hiding (find, repeat, cycle, diff, empty, take, drop, zip, zipWith, length)
 import NumHask.Array.Sort
 import NumHask.Array.Shape qualified as S
 import Prettyprinter hiding (dot)
@@ -476,10 +487,10 @@ isScalar a = rank a == zero
 
 -- | convert scalars to dimensioned arrays
 --
--- >>> asDimmed (toScalar 4)
+-- >>> asSingleton (toScalar 4)
 -- UnsafeArray [1] [4]
-asDimmed :: Array a -> Array a
-asDimmed (UnsafeArray s v) = UnsafeArray (bool s (V.singleton 1) (V.null s)) v
+asSingleton :: Array a -> Array a
+asSingleton (UnsafeArray s v) = UnsafeArray (bool s (V.singleton 1) (V.null s)) v
 
 -- | convert arrays with shape [1] to scalars
 --
@@ -595,19 +606,20 @@ dropDs ::
   Array a
 dropDs ts a = foldl' (\a' (d,t) -> dropD d t a') a ts
 
--- | reshape an array, supplying a default value for elements outside the shape of the old array.
+-- | pad an array to form a new shape, supplying a default value for elements outside the shape of the old array.
 --
--- >>> reshapeDef 0 [5] (array [4] [0..3] :: Array Int)
+-- >>> pad 0 [5] (array [4] [0..3] :: Array Int)
 -- UnsafeArray [5] [0,1,2,3,0]
-reshapeDef ::
-  (FromVector u Int) =>
+pad ::
   a ->
-  u ->
+  [Int] ->
   Array a ->
   Array a
-reshapeDef d s' (UnsafeArray _ v) = def d (UnsafeArray (asVector s') v)
+pad d s' a = tabulate s' (\s -> bool d (index a s) (s `inside` (shape a)))
+  where
+    inside x x' = all id $ List.zipWith (<) x x'
 
--- | Reshape an array (with the same number of elements).
+-- | Reshape an array (with the same or less number of elements).
 --
 -- >>> pretty $ reshape [4,3,2] a
 -- [[[1,2],
@@ -629,12 +641,54 @@ reshape ::
   Array a
 reshape s a = tabulate s (index @(V.Vector Int) a . shapen (shape a) . flatten s)
 
+-- | Reshape an array, repeating the original array. The shape of the array should be a suffix of the new shape.
+--
+-- >>> pretty $ D.repeat [2,2,2] (array [2] [1,2])
+-- [[[1,2],
+--   [1,2]],
+--  [[1,2],
+--   [1,2]]]
+--
+-- > D.repeat ds (toScalar x) == konst ds x
+repeat ::
+  [Int] ->
+  Array a ->
+  Array a
+repeat s a = backpermute (const s) (List.drop (S.rank s - rank a)) a
+
+-- | Reshape an array, cycliing through the elements withuot regard to the original shape.
+--
+-- >>> pretty $ D.cycle [2,2,2] (array [3] [1,2,3])
+-- [[[1,2],
+--   [3,1]],
+--  [[2,3],
+--   [1,2]]]
+cycle ::
+  [Int] ->
+  Array a ->
+  Array a
+cycle s a = backpermute (const s) (shapen (shape a) . (\x -> mod x (size a)) . flatten s) a
+
+-- | windows xs are xs-sized windows of an array
+--
+-- >>> D.shape @[Int] $ D.windows [2,2] (D.iota [4,3,2])
+-- [3,2,2,2,2]
+windows :: [Int] -> Array a -> Array a
+windows xs a = backpermute df wf a
+  where
+    c = List.length xs
+    df s = (List.zipWith (\s' x' -> s' - x' + 1) s xs) <> xs <> (List.drop c s)
+    wf s = List.zipWith (+) (List.take c s) (List.take c (List.drop c s)) <> List.drop (c+c) s
+
 -- | Rotate an array according to dimension, length tuples.
 --
--- >>> let x = array [2,3] [0..5] :: Array Int
--- >>> pretty $ rotates [(0,1),(1,1)] x
--- [[4,5,3],
---  [1,2,0]]
+-- >>> pretty $ rotates [(1,2)] a
+-- [[[9,10,11,12],
+--   [1,2,3,4],
+--   [5,6,7,8]],
+--  [[21,22,23,24],
+--   [13,14,15,16],
+--   [17,18,19,20]]]
 rotates ::
   [(Int,Int)] ->
   Array a ->
@@ -902,8 +956,8 @@ concatenate d a0 a1 = tabulate (S.concatenate d (shape a0') (shape a1')) go
         )
         ((s !! d) >= (ds0 !! d))
     ds0 = shape a0'
-    a0' = asDimmed a0
-    a1' = asDimmed a1
+    a0' = asSingleton a0
+    a1' = asSingleton a1
 
 -- | Insert along a dimension at a position.
 --
@@ -922,12 +976,28 @@ insert ::
   Array a ->
   Array a ->
   Array a
-insert d i a b = tabulate (S.incAt d (shape (asDimmed a))) go
+insert d i a b = tabulate (S.incAt d (shape (asSingleton a))) go
   where
     go s
-      | s !! d == i = index (asDimmed b) (S.deleteIndex s d)
-      | s !! d < i = index (asDimmed a) s
-      | otherwise = index (asDimmed a) (S.decAt d s)
+      | s !! d == i = index (asSingleton b) (S.deleteIndex s d)
+      | s !! d < i = index (asSingleton a) s
+      | otherwise = index (asSingleton a) (S.decAt d s)
+
+-- | Delete along a dimension at a position.
+--
+-- >>> pretty $ delete 2 0 a
+-- [[[1,2,3],
+--   [5,6,7],
+--   [9,10,11]],
+--  [[13,14,15],
+--   [17,18,19],
+--   [21,22,23]]]
+delete ::
+  Int ->
+  Int ->
+  Array a ->
+  Array a
+delete d i a = backpermute (S.decAt d) (\s -> bool s (S.incAt d s) (s !! d < i)) (asSingleton a)
 
 -- | Insert along a dimension at the end.
 --
@@ -1130,6 +1200,49 @@ sliceD ::
   Array a
 sliceD d offset l a = takes [(d,l)] $ drops [(d,offset)] a
 
+-- | find the starting positions of occurences of one array in another.
+--
+-- >>> a = D.cycle [4,4] (iota [3]) :: Array Int
+-- >>> i = array [2,2] [1,2,2,0] :: Array Int
+-- >>> pretty $ D.find i a
+-- [[False,True,False],
+--  [True,False,False],
+--  [False,False,True]]
+find :: (Eq a) => Array a -> Array a -> Array Bool
+find i a = xs
+  where
+    i' = rerank (rank a) i
+    ws = windows (shape i') a
+    xs = fmap (==i') (extracts (arrayAs (iota [rank a]) <> [rank a * 2 .. (rank ws - 1)]) ws)
+
+-- | find the ending positions of one array in another except where the array overlaps with another copy.
+--
+-- >>> a = D.konst [5,5] 1 :: Array Int
+-- >>> i = D.konst [2,2] 1 :: Array Int
+-- >>> pretty $ findNoOverlap i a
+-- [[True,False,True,False],
+--  [False,False,False,False],
+--  [True,False,True,False],
+--  [False,False,False,False]]
+findNoOverlap :: (Eq a) => Array a -> Array a -> Array Bool
+findNoOverlap i a = r
+  where
+    iexp = rerank (rank a) i
+    f = find iexp a
+    cl sh = List.filter (\xs -> P.not (any (>0) (List.init xs))) $ List.filter (P.not . (all (>=0))) $ arrayAs $ tabulate ((\x -> 2 * x - 1) <$> sh) (\s -> List.zipWith (\x x0 -> x - x0 + 1) s sh)
+    inside x' x = all id $ List.zipWith (\y' y -> y >= 0 && y < y') x' x
+    go r' s = index f s && all P.not (index r' <$> (List.filter (inside (shape f)) $ fmap (List.zipWith (+) s) (cl (shape iexp))))
+    r = tabulate (shape f) (go r)
+
+-- | Change rank by adding new dimenaions at the front, if the new rank is greater, or combining dimensions (from left to right) into rows, if the new rank is lower.
+--
+-- >>> shape @[Int] (rerank 4 a)
+-- [1,2,3,4]
+-- >>> shape @[Int] (rerank 2 a)
+-- [6,4]
+rerank :: Int -> Array a -> Array a
+rerank r a = unsafeModifyShape (S.rerank r) a
+
 -- | change the order of dimensions
 --
 -- >>> let r = reorder [2,0,1] a
@@ -1300,7 +1413,9 @@ telecastsSafe ds f a b =
 -- [[1,2,3],
 --  [4,5,6]]
 transmit :: (Array a -> Array b -> Array c) -> Array a -> Array b -> Array c
-transmit f a b = extractsExcept [0..rank a - 1] b & fmap (f a) & join
+transmit f a b = extracts ds b & fmap (f a) & joins ds
+  where
+    ds = [(rank a)..(rank b - 1)]
 
 -- | Apply a binary array function to two arrays where the shape of the first array is a prefix of the second array. No checks on shape.
 --
@@ -1368,6 +1483,26 @@ take n a = takes [(0,n)] a
 drop :: Int -> Array a -> Array a
 drop n a = drops [(0,n)] a
 
+-- | row-wise rotate an array
+rotate ::
+  [Int] ->
+  Array a ->
+  Array a
+rotate rs a = rotates (List.zip [0..] rs) a
+
+-- | row-wise slice of (offset,length) tuples.
+--
+-- >>> let s = sliceR [(1,1)] a
+-- >>> pretty s
+-- [[[13,14,15,16],
+--   [17,18,19,20],
+--   [21,22,23,24]]]
+sliceR ::
+  [(Int,Int)] ->
+  Array a ->
+  Array a
+sliceR xs a = foldl' (&) a $ List.zipWith (\d (o,l) -> sliceD d o l) [0..] xs
+
 -- * column (last dimension) specizations
 
 -- | selects specialised to selecting a single selection across the last dimension.
@@ -1399,11 +1534,20 @@ zipWithESafe f (UnsafeArray s v) (UnsafeArray s' v') = bool (Left (NumHaskExcept
 
 -- | difference a rank 1 array using the supplied function with a lag.
 --
--- >>> pretty $ diff 1 (-) (iota [3,2])
+-- >>> pretty $ diffE 1 (-) (iota [3,2])
 -- [[2,2],
 --  [2,2]]
-diff :: Int -> (a -> a -> b) -> Array a -> Array b
-diff n f a = zipWithE f (drop n a) (drop (-n) a)
+diffE :: Int -> (a -> a -> b) -> Array a -> Array b
+diffE n f a = zipWithE f (drop n a) (drop (-n) a)
+
+-- | modify a value at an index
+--
+-- >>> pretty $ modifyE [0,0] (const 100) m
+-- [[100,1,2,3],
+--  [4,5,6,7],
+--  [8,9,10,11]]
+modifyE :: (Eq u, FromVector u Int) => u -> (a -> a) -> Array a -> Array a
+modifyE ds f a = tabulate (shape a) (\s -> (bool id f (s == ds)) (index a s))
 
 -- * array specializations
 

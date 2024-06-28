@@ -131,7 +131,7 @@ Ok, five modules loaded.
 | slice pss     | (S.ranks pss)                              | List.zipWith (!!) pss                                       |
 | reorder ds    | S.reorder ds                               | S.addIndexes [] ds                                          |
 | reverses ds   | id                                         | S.reverseIndex ds                                           |
-| inflates ds n | S.addIndexes d n                           | S.deleteIndexes d                                           |
+| inflates ds n | S.addIndexes ds n                          | S.deleteIndexes ds                                          |
 | transpose     | List.reverse                               | List.reverse                                                |
 |               |                                            |                                                             |
 

@@ -19,6 +19,7 @@ module NumHask.Array.Shape
     ReverseGo,
     Filter,
     rank,
+    rerank,
     Rank,
     ranks,
     Ranks,
@@ -155,6 +156,20 @@ rank = length
 type family Rank (s :: [a]) :: Nat where
   Rank '[] = 0
   Rank (_ : s) = Rank s + 1
+
+-- | Create a new rank by adding ones to the left, if the new rank is greater, or combining dimensions (from left to right) into rows, if the new rank is lower.
+--
+-- >>> rerank 4 [2,3,4]
+-- [1,2,3,4]
+-- >>> rerank 2 [2,3,4]
+-- [6,4]
+rerank :: Int -> [Int] -> [Int]
+rerank r xs =
+  replicate (r - r') one <>
+  bool [] [product (take (r' - r + 1) xs)] (r<=r') <>
+  drop (r' - r + 1) xs
+  where
+    r' = rank xs
 
 -- | The shape of a list of element indexes
 ranks :: [[a]] -> [Int]
