@@ -471,7 +471,7 @@ selects ::
   ( HasShape s,
     HasShape ds,
     HasShape s',
-    s' ~ DropIndexes s ds
+    s' ~ DropIndexes ds s
   ) =>
   Proxy ds ->
   [Int] ->
@@ -516,8 +516,8 @@ folds ::
     HasShape ds,
     HasShape si,
     HasShape so,
-    si ~ DropIndexes st ds,
-    so ~ TakeIndexes st ds
+    si ~ DropIndexes ds st,
+    so ~ TakeIndexes ds st
   ) =>
   (Array si a -> b) ->
   Proxy ds ->
@@ -538,8 +538,8 @@ extracts ::
     HasShape ds,
     HasShape si,
     HasShape so,
-    si ~ DropIndexes st ds,
-    so ~ TakeIndexes st ds
+    si ~ DropIndexes ds st,
+    so ~ TakeIndexes ds st
   ) =>
   Proxy ds ->
   Array st a ->
@@ -559,7 +559,7 @@ extractsExcept ::
     HasShape ds,
     HasShape si,
     HasShape so,
-    so ~ DropIndexes st ds,
+    so ~ DropIndexes ds st,
     si ~ TakeIndexes st ds
   ) =>
   Proxy ds ->
@@ -611,10 +611,10 @@ maps ::
     HasShape si,
     HasShape si',
     HasShape so,
-    si ~ DropIndexes st ds,
-    so ~ TakeIndexes st ds,
+    si ~ DropIndexes ds st,
+    so ~ TakeIndexes ds st,
     st' ~ AddIndexes si' ds so,
-    st ~ AddIndexes si ds so
+    st ~ AddIndexes so si ds
   ) =>
   (Array si a -> Array si' b) ->
   Proxy ds ->
@@ -647,9 +647,9 @@ concatenate _ s0 s1 = tabulate go
         ( index
             s1
             ( addIndex
-                (deleteIndex s d)
                 d
                 ((s !! d) - (ds0 !! d))
+                (deleteIndex d s)
             )
         )
         ((s !! d) >= (ds0 !! d))
@@ -667,7 +667,7 @@ concatenate _ s0 s1 = tabulate go
 --   [105,21,22,23,24]]]
 insert ::
   forall a s s' d i.
-  ( DropIndex s d ~ s',
+  ( DropIndex d s ~ s',
     CheckInsert d i s,
     KnownNat i,
     KnownNat d,
@@ -683,7 +683,7 @@ insert ::
 insert _ _ a b = tabulate go
   where
     go s
-      | s !! d == i = index b (deleteIndex s d)
+      | s !! d == i = index b (deleteIndex d s)
       | s !! d < i = index a s
       | otherwise = index a (decAt d s)
     d = fromIntegral $ natVal @d Proxy
@@ -696,7 +696,7 @@ insert _ _ a b = tabulate go
 --   :: Array [3, 4] Int -> Array [3, 3, 4] Int
 append ::
   forall a d s s'.
-  ( DropIndex s d ~ s',
+  ( DropIndex d s ~ s',
     CheckInsert d (Dimension s d - 1) s,
     KnownNat (Dimension s d - 1),
     KnownNat d,
@@ -876,7 +876,7 @@ contract ::
     HasShape ds,
     HasShape ss,
     HasShape s',
-    s' ~ DropIndexes s ds,
+    s' ~ DropIndexes ds s,
     ss ~ '[Minimum (TakeIndexes s ds)]
   ) =>
   (Array ss a -> b) ->
@@ -954,7 +954,7 @@ dot ::
     KnownNat (Rank sa),
     ss ~ '[Minimum se],
     HasShape ss,
-    s' ~ DropIndexes (sa ++ sb) '[Rank sa - 1, Rank sa],
+    s' ~ DropIndexes '[Rank sa - 1, Rank sa] (sa ++ sb),
     HasShape s'
   ) =>
   (Array ss c -> d) ->
@@ -1003,7 +1003,7 @@ mult ::
     KnownNat (Rank sa),
     ss ~ '[Minimum se],
     HasShape ss,
-    s' ~ DropIndexes (sa ++ sb) '[Rank sa - 1, Rank sa],
+    s' ~ DropIndexes '[Rank sa - 1, Rank sa] (sa ++ sb),
     HasShape s'
   ) =>
   Array sa a ->

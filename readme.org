@@ -100,7 +100,7 @@ import Prettyprinter
 #+begin_example
 Build profile: -w ghc-9.8.2 -O1
 In order, the following will be built (use -v for more details):
- - numhask-array-0.12 (lib) (ephemeral targets)
+ - numhask-array-0.12 (lib) (file src/NumHask/Array/Dynamic.hs changed)
 Preprocessing library for numhask-array-0.12..
 GHCi, version 9.8.2: https://www.haskell.org/ghc/  :? for help
 Loaded GHCi configuration from /Users/tonyday567/haskell/numhask-array/.ghci
@@ -112,6 +112,23 @@ Loaded GHCi configuration from /Users/tonyday567/haskell/numhask-array/.ghci
 Ok, five modules loaded.
 Ok, five modules loaded.
 #+end_example
+
+#+begin_src haskell-ng :results output
+a = iota [2,3,4] :: D.Array Int
+pretty a
+:t S.modifyIndex
+-- :t \d o l a -> backpermute (S.replaceIndex d l) (S.modifyIndex d (+o)) a
+#+end_src
+
+#+RESULTS:
+: [[[0,1,2,3],
+:   [4,5,6,7],
+:   [8,9,10,11]],
+:  [[12,13,14,15],
+:   [16,17,18,19],
+:   [20,21,22,23]]]
+: \d o l a -> backpermute (S.replaceIndex d l) (S.modifyIndex d (+o)) a
+:   :: Int -> Int -> Int -> D.Array a -> D.Array a
 
 ** backpermute
 
