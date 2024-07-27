@@ -22,10 +22,7 @@ import qualified NumHask.Array.Fixed as F
 import qualified NumHask.Array.Dynamic as D
 #+end_src
 
-* recip development
-
-'chol' uses the [[https://en.wikipedia.org/wiki/Cholesky_decomposition#The_Cholesky_algorithm][Cholesky-Crout]] algorithm.
-
+* Development
 
 #+begin_src haskell :results output :exports both
 :r
@@ -54,9 +51,14 @@ putStrLn "ok"
 : Ok, four modules loaded.
 : ok
 
+** Cholesky decomposition
+
+'chol' uses the [[https://en.wikipedia.org/wiki/Cholesky_decomposition#The_Cholesky_algorithm][Cholesky-Crout]] algorithm.
+
+
 Example from https://rosettacode.org/wiki/Cholesky_decomposition#Haskell
 
-#+begin_src haskell :results output
+#+begin_src haskell :results output :exports both
 a = [25, 15, -5 ,15, 18, 0 ,-5,  0, 11] :: Matrix 3 3 Double
 b = [ 18, 22, 54, 42 , 22, 70, 86, 62 , 54, 86, 174, 134 , 42, 62, 134, 106] :: Matrix 4 4 Double
 chol a
