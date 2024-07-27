@@ -1,8 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
+{-# OPTIONS_GHC -Wno-x-partial #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
 -- | Arrays with a dynamic shape (shape only known at runtime).

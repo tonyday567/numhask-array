@@ -2,8 +2,6 @@
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
-{-# OPTIONS_GHC -fno-warn-unused-top-binds #-}
 
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
@@ -203,18 +201,10 @@ type family Drop (n :: Nat) (a :: [k]) :: [k] where
   Drop 0 xs = xs
   Drop n (_ : xs) = Drop (n - 1) xs
 
-type family Tail (a :: [k]) :: [k] where
-  Tail '[] = L.TypeError ('Text "No tail")
-  Tail (_ : xs) = xs
-
 type family Init (a :: [k]) :: [k] where
   Init '[] = L.TypeError ('Text "No init")
   Init '[_] = '[]
   Init (x : xs) = x : Init xs
-
-type family Head (a :: [k]) :: k where
-  Head '[] = L.TypeError ('Text "No head")
-  Head (x : _) = x
 
 type family Last (a :: [k]) :: k where
   Last '[] = L.TypeError ('Text "No last")
@@ -425,19 +415,10 @@ type family SFilter (f :: Flag) (p :: k) (xs :: [k]) :: [k] where
   SFilter 'FMin p (x ': xs) = If (Cmp x p == 'LT) (x ': SFilter 'FMin p xs) (SFilter 'FMin p xs)
   SFilter 'FMax p (x ': xs) = If (Cmp x p == 'GT || Cmp x p == 'EQ) (x ': SFilter 'FMax p xs) (SFilter 'FMax p xs)
 
-type family Zip lst lst' where
-  Zip lst lst' = ZipWith '(,) lst lst' -- Implemented as TF because #11375
-
 type family ZipWith f lst lst' where
   ZipWith f '[] lst = '[]
   ZipWith f lst '[] = '[]
   ZipWith f (l ': ls) (n ': ns) = f l n ': ZipWith f ls ns
-
-type family Fst a where
-  Fst '(a, _) = a
-
-type family Snd a where
-  Snd '(_, a) = a
 
 type family FMap f lst where
   FMap f '[] = '[]

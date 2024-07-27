@@ -1,11 +1,8 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 -- | Arrays with a fixed shape (known shape at compile time).
 module NumHask.Array.Fixed
@@ -78,7 +75,6 @@ where
 
 import Data.Distributive (Distributive (..))
 import Data.Functor.Rep
-import Data.List ((!!))
 import Data.Proxy
 import Data.Vector qualified as V
 import GHC.Exts (IsList (..))
