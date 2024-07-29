@@ -32,7 +32,7 @@ jobs:
           - os: macos-latest
             ghc-version: '9.8'
           - os: ubuntu-latest
-            ghc-version: '9.8'
+            ghc-version: '9.6'
             docspec: true
             experimental: true
             name: docspec
