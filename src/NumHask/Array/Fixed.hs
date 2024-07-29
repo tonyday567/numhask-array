@@ -136,8 +136,7 @@ instance (HasShape s, Show a) => Show (Array s a) where
   show a = GHC.Show.show (toDynamic a)
 
 instance
-  ( HasShape s
-  ) =>
+  (HasShape s) =>
   Data.Distributive.Distributive (Array s)
   where
   distribute = distributeRep
@@ -145,8 +144,7 @@ instance
 
 instance
   forall s.
-  ( HasShape s
-  ) =>
+  (HasShape s) =>
   Representable (Array s)
   where
   type Rep (Array s) = [Int]
@@ -215,8 +213,7 @@ instance (HasShape s, Subtractive a, Epsilon a) => Epsilon (Array s a) where
   epsilon = singleton epsilon
 
 instance
-  ( HasShape s
-  ) =>
+  (HasShape s) =>
   IsList (Array s a)
   where
   type Item (Array s a) = a
