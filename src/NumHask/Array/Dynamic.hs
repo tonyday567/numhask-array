@@ -71,6 +71,7 @@ import NumHask.Array.Shape
 import NumHask.Prelude as P hiding (product)
 
 -- $setup
+-- >>> :m -Prelude
 -- >>> :set -XDataKinds
 -- >>> :set -XOverloadedLists
 -- >>> :set -XTypeFamilies

@@ -1,2 +1,5 @@
 packages:
   numhask-array.cabal
+
+write-ghc-environment-files: always
+
