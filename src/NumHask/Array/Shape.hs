@@ -74,6 +74,7 @@ import GHC.TypeLits as L
 import NumHask.Prelude as P hiding (Last, minimum)
 
 -- $setup
+-- >>> :m -Prelude
 -- >>> :set -XDataKinds
 -- >>> :set -XOverloadedLists
 -- >>> :set -XTypeFamilies
