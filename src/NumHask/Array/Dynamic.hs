@@ -772,7 +772,7 @@ reduces ::
   (Array a -> b) ->
   Array a ->
   Array b
-reduces ds f a = tabulate (S.takeIndexes (shape a) ds') go
+reduces ds f a = tabulate (S.takeIndexes ds' (shape a)) go
   where
     ds' = S.exclude (rank a) ds
     go s = f (selects (List.zip ds' s) a)
@@ -823,9 +823,9 @@ joins ::
   [Int] ->
   Array (Array a) ->
   Array a
-joins ds a = tabulate (S.addIndexes si ds so) go
+joins ds a = tabulate (S.addIndexes ds so si) go
   where
-    go s = index (index a (S.takeIndexes s ds)) (S.deleteIndexes s ds)
+    go s = index (index a (S.takeIndexes ds s)) (S.deleteIndexes ds s)
     so = shape a
     si = shape (index a (replicate (rank a) 0))
 
@@ -1261,7 +1261,7 @@ reorder ::
   [Int] ->
   Array a ->
   Array a
-reorder ds a = backpermute (\s -> S.reorder s ds) (S.addIndexes [] ds) a
+reorder ds a = backpermute (\s -> S.reorder s ds) (\s -> S.addIndexes ds s []) a
 
 -- | reverses order along specified dimensions.
 --

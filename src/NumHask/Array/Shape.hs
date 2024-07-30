@@ -94,7 +94,6 @@ import Data.List qualified as List
 -- $setup
 -- >>> :m -Prelude
 -- >>> :set -XDataKinds
--- >>> :set -XOverloadedLists
 -- >>> :set -XTypeFamilies
 -- >>> :set -XFlexibleContexts
 -- >>> :set -XRebindableSyntax
@@ -342,11 +341,11 @@ deleteIndex i s = take i s ++ drop (i + 1) s
 
 type DropIndex i s = Take i s ++ Drop (i + 1) s
 
--- | /addIndex s i d/ adds a new dimension to shape /s/ at position /i/
+-- | /addIndex i d s/ adds a new dimension to shape /s/ at position /i/
 --
--- >>> addIndex [2,4] 1 3
+-- >>> addIndex 1 3 [2,4]
 -- [2,3,4]
--- >>> addIndex [] 0 4
+-- >>> addIndex 0 4 []
 -- [4]
 addIndex :: Int -> Int -> [Int] -> [Int]
 addIndex i d s = take i s ++ (d : drop i s)
@@ -435,7 +434,7 @@ type family DecMap (x :: Nat) (ys :: [Nat]) :: [Nat] where
 -- >>> deleteIndexes [1,0] [2, 3, 4]
 -- [4]
 deleteIndexes :: [Int] -> [Int] -> [Int]
-deleteIndexes i s = foldr deleteIndex (preDeletePositions s) i
+deleteIndexes i s = foldl' (flip deleteIndex) s (preDeletePositions i)
 
 type family DropIndexes (i :: [Nat]) (s :: [Nat]) where
   DropIndexes i s = DropIndexesGo (PosRelative i) s
@@ -451,7 +450,7 @@ type family DropIndexesGo (i :: [Nat]) (s :: [Nat]) where
 -- >>> addIndexes [1,0] [3,2] [4]
 -- [2,3,4]
 addIndexes :: [Int] -> [Int] -> [Int] -> [Int]
-addIndexes xs ys as = addIndexesGo xs (preInsertPositions ys) as
+addIndexes xs ys as = addIndexesGo (preInsertPositions xs) ys as
   where
     addIndexesGo [] _ as' = as'
     addIndexesGo (x : xs') (y : ys') as' = addIndexesGo xs' ys' (addIndex x y as')
@@ -515,7 +514,7 @@ type family EnumerateGo (n :: Nat) where
 -- >>> exclude 3 [1,2]
 -- [0]
 exclude :: Int -> [Int] -> [Int]
-exclude r = deleteIndexes [0 .. (r - 1)]
+exclude r xs = deleteIndexes xs [0 .. (r - 1)]
 
 type family Exclude (r :: Nat) (i :: [Nat]) where
   Exclude r i = DropIndexes (EnumerateGo r) i

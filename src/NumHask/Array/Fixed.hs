@@ -134,7 +134,7 @@ import Prettyprinter hiding (dot)
 --   [21,22,23,24]]]
 --
 -- >>> [1,2,3] :: Array '[2,2] Int
--- [[*** Exception: NumHaskException {errorMessage = "shape mismatch"}
+-- *** Exception: NumHaskException {errorMessage = "shape mismatch"}
 type role Array nominal representational
 newtype Array (s :: [Nat]) a where
   UnsafeArray :: V.Vector a -> Array s a
@@ -480,7 +480,7 @@ selects ::
   Array s' a
 selects _ i a = tabulate go
   where
-    go s = index a (addIndexes s ds i)
+    go s = index a (addIndexes ds i s)
     ds = shapeVal (toShape @ds)
 
 -- | Select an index /except/ along specified dimensions.
