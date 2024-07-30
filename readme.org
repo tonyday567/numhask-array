@@ -647,3 +647,7 @@ fromList [1..24] :: Array [2,3,4] Int
 :  [[13, 14, 15, 16],
 :   [17, 18, 19, 20],
 :   [21, 22, 23, 24]]]
+
+* reference
+
+[[https://link.springer.com/chapter/10.1007/978-3-662-54434-1_21][APLicative Programming with Naperian Functors]]

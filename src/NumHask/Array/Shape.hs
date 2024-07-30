@@ -7,6 +7,8 @@
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
   ( ShapeP (..),
+    withShapeP,
+    withShape,
     shapeT,
     Shape (..),
     HasShape (..),

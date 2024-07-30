@@ -16,6 +16,7 @@ import Data.Vector (Vector, unsafeIndex, convert)
 import qualified Data.Vector as V
 
 -- $setup
+-- >>> :m -Prelude
 -- >>> import Data.Vector qualified as V
 -- >>> import Data.Ord (Down (..))
 -- >>> :set -XDataKinds

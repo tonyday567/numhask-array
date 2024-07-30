@@ -79,7 +79,6 @@ import Data.Functor.Rep
 import Data.Proxy
 import Data.Vector qualified as V
 import GHC.Exts (IsList (..))
-import GHC.Show (Show (..))
 import GHC.TypeLits
 import NumHask.Array.Dynamic qualified as D
 import NumHask.Array.Shape hiding (rank, size)
@@ -144,6 +143,8 @@ newtype Array (s :: [Nat]) a where
 
 pattern Array :: V.Vector a -> Array s a
 pattern Array { toVector } <- UnsafeArray toVector
+
+{-# COMPLETE Array #-}
 
 instance (HasShape s, Show a) => Pretty (Array s a) where
   pretty = pretty . toDynamic
