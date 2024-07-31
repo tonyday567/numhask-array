@@ -114,7 +114,7 @@ Ok, five modules loaded.
 #+end_example
 
 #+begin_src haskell-ng :results output
-a = iota [2,3,4] :: D.Array Int
+a = range [2,3,4] :: D.Array Int
 pretty a
 :t S.modifyDim
 -- :t \d o l a -> backpermute (S.replaceDim d l) (S.modifyDim d (+o)) a
@@ -134,7 +134,7 @@ pretty a
 
 #+begin_src haskell-ng :results output
 import qualified Data.List as List
-x = iota [2,3]
+x = range [2,3]
 x
 D.backpermute (List.drop 1 :: [Int] -> [Int]) x
 #+end_src
@@ -143,7 +143,7 @@ D.backpermute (List.drop 1 :: [Int] -> [Int]) x
 : UnsafeArray [2,3] [0,1,2,3,4,5]
 : UnsafeArray [3] [0,0,0]
 
-** iota
+** range
 
 #+begin_src haskell-ng :results output
 D.range (D.toScalar 3)
@@ -533,8 +533,8 @@ D.drops [1,0] m
 * scalar applications
 
 #+begin_src haskell-ng :results output
-S.shapenL [] 20
-S.flattenL [] []
+S.shapen [] 20
+S.flatten [] []
 S.deleteDim [] 2
 S.replaceDim 0 1 []
 S.modifyDim 0 (+1) []

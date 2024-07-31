@@ -165,12 +165,12 @@ instance
   type Rep (Array s) = [Int]
 
   tabulate f =
-    UnsafeArray . V.generate (S.size s) $ (f . shapenL s)
+    UnsafeArray . V.generate (S.size s) $ (f . shapen s)
     where
       s = shapeOf @s
   {-# INLINE tabulate #-}
 
-  index (Array v) i = V.unsafeIndex v (flattenL s i)
+  index (Array v) i = V.unsafeIndex v (flatten s i)
     where
       s = shapeOf @s
   {-# INLINE index #-}
@@ -337,7 +337,7 @@ reshape ::
   ) =>
   Array s a ->
   Array s' a
-reshape a = tabulate (index a . shapenL s . flattenL s')
+reshape a = tabulate (index a . shapen s . flatten s')
   where
     s = shapeOf @s
     s' = shapeOf @s'

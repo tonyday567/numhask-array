@@ -6,10 +6,14 @@
 
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
-  ( valueOf,
+  ( KnownNats (..),
+    KnownNatss (..),
+    valueOf,
     Shape (..),
     HasShape (..),
     shapeOf,
+    flatten,
+    shapen,
     isDiag,
     inside,
     rotate,
@@ -18,7 +22,6 @@ module NumHask.Array.Shape
     Take,
     Drop,
     Reverse,
-    ReverseGo,
     Filter,
     rank,
     rerank,
@@ -29,8 +32,6 @@ module NumHask.Array.Shape
     Size,
     indexOf,
     IndexOf,
-    flattenL,
-    shapenL,
     minimum,
     Minimum,
     checkIndex,
@@ -48,16 +49,13 @@ module NumHask.Array.Shape
     preDeletePositions,
     preInsertPositions,
     PosRelative,
-    PosRelativeGo,
     DecMap,
     insertDims,
     InsertDims,
-    InsertDimsGo,
     replaceDims,
     modifyDims,
     deleteDims,
     DeleteDims,
-    DeleteDimsGo,
     takeDims,
     TakeDims,
     exclude,
@@ -76,8 +74,6 @@ module NumHask.Array.Shape
     Squeeze,
     incAt,
     decAt,
-    KnownNats (..),
-    KnownNatss (..),
   )
 where
 
@@ -165,26 +161,26 @@ type family Size (s :: [Nat]) :: Nat where
 
 -- | convert from n-dim shape list index to a flat index
 --
--- >>> flattenL [2,3,4] [1,1,1]
+-- >>> flatten [2,3,4] [1,1,1]
 -- 17
 --
--- >>> flattenL [] [1,1,1]
+-- >>> flatten [] [1,1,1]
 -- 0
-flattenL :: [Int] -> [Int] -> Int
-flattenL [] _ = 0
-flattenL _ [x'] = x'
-flattenL ns xs = sum $ zipWith (*) xs (drop 1 $ scanr (*) one ns)
-{-# INLINE flattenL #-}
+flatten :: [Int] -> [Int] -> Int
+flatten [] _ = 0
+flatten _ [x'] = x'
+flatten ns xs = sum $ zipWith (*) xs (drop 1 $ scanr (*) one ns)
+{-# INLINE flatten #-}
 
 -- | convert from a flat index to a shape index
 --
--- >>> shapenL [2,3,4] 17
+-- >>> shapen [2,3,4] 17
 -- [1,1,1]
-shapenL :: [Int] -> Int -> [Int]
-shapenL [] _ = []
-shapenL [_] x' = [x']
-shapenL [_, y] x' = let (i, j) = divMod x' y in [i, j]
-shapenL ns x =
+shapen :: [Int] -> Int -> [Int]
+shapen [] _ = []
+shapen [_] x' = [x']
+shapen [_, y] x' = let (i, j) = divMod x' y in [i, j]
+shapen ns x =
   fst $
     foldr
       ( \a (acc, r) ->
@@ -193,7 +189,7 @@ shapenL ns x =
       )
       ([], x)
       ns
-{-# INLINE shapenL #-}
+{-# INLINE shapen #-}
 
 isDiag :: (Eq a) => [a] -> Bool
 isDiag [] = True
@@ -562,30 +558,6 @@ type family Squeeze (a :: [Nat]) where
 type family Filter (r :: [Nat]) (xs :: [Nat]) (i :: Nat) where
   Filter r '[] _ = Reverse r
   Filter r (x : xs) i = Filter (If (x == i) r (x : r)) xs i
-
--- unused but useful type-level functions
-
-type family Sort (xs :: [k]) :: [k] where
-  Sort '[] = '[]
-  Sort (x ': xs) = (Sort (SFilter 'FMin x xs) ++ '[x]) ++ Sort (SFilter 'FMax x xs)
-
-data Flag = FMin | FMax
-
-type family Cmp (a :: k) (b :: k) :: Ordering
-
-type family SFilter (f :: Flag) (p :: k) (xs :: [k]) :: [k] where
-  SFilter f p '[] = '[]
-  SFilter 'FMin p (x ': xs) = If (Cmp x p == 'LT) (x ': SFilter 'FMin p xs) (SFilter 'FMin p xs)
-  SFilter 'FMax p (x ': xs) = If (Cmp x p == 'GT || Cmp x p == 'EQ) (x ': SFilter 'FMax p xs) (SFilter 'FMax p xs)
-
-type family ZipWith f lst lst' where
-  ZipWith f '[] lst = '[]
-  ZipWith f lst '[] = '[]
-  ZipWith f (l ': ls) (n ': ns) = f l n ': ZipWith f ls ns
-
-type family FMap f lst where
-  FMap f '[] = '[]
-  FMap f (l ': ls) = f l ': FMap f ls
 
 -- | Reflect a list of Nats
 class KnownNats (ns :: [Nat]) where
