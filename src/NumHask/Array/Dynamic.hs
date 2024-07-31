@@ -33,8 +33,8 @@ module NumHask.Array.Dynamic
     -- * indexing
     index,
     tabulate,
-    flatten,
-    shapen,
+    S.flatten,
+    S.shapen,
     backpermute,
 
     -- Scalar conversions
@@ -184,7 +184,7 @@ import Prettyprinter hiding (dot, fill)
 --  [[13,14,15,16],
 --   [17,18,19,20],
 --   [21,22,23,24]]]
-data Array a = UnsafeArray (V.Vector Int) (V.Vector a)
+data Array a = UnsafeArray [Int] (V.Vector a)
   deriving stock (Generic)
   deriving stock (Eq, Ord, Show)
 
@@ -217,10 +217,10 @@ instance (Show a) => Pretty (Array a) where
 -- * conversions
 
 instance (FromInteger a) => FromInteger (Array a) where
-  fromInteger x = UnsafeArray V.empty (V.singleton (fromInteger x))
+  fromInteger x = UnsafeArray [] (V.singleton (fromInteger x))
 
 instance (FromRational a) => FromRational (Array a) where
-  fromRational x = UnsafeArray V.empty (V.singleton (fromRational x))
+  fromRational x = UnsafeArray [] (V.singleton (fromRational x))
 
 class FromVector t a | t -> a where
   asVector :: t -> V.Vector a
@@ -236,7 +236,7 @@ instance FromVector [a] a where
 
 instance FromVector (Array a) a where
   asVector (UnsafeArray _ v) = v
-  vectorAs v = UnsafeArray (V.singleton (V.length v)) v
+  vectorAs v = UnsafeArray [V.length v] v
 
 class FromArray t a | t -> a where
   asArray :: t -> Array a
@@ -247,19 +247,19 @@ instance FromArray (Array a) a where
   arrayAs = id
 
 instance FromArray [a] a where
-  asArray l = UnsafeArray (V.singleton (S.rank l)) (V.fromList l)
+  asArray l = UnsafeArray [S.rank l] (V.fromList l)
   arrayAs (UnsafeArray _ v) = V.toList v
 
 instance FromArray (V.Vector a) a where
-  asArray v = UnsafeArray (V.singleton (V.length v)) v
+  asArray v = UnsafeArray [V.length v] v
   arrayAs (UnsafeArray _ v) = v
 
 -- | Polymorphic constructor of an array from shape and value vectors without any shape validation
 --
 -- >>> array [2,3,4] [1..24] == a
 -- True
-array :: (FromVector u Int) => (FromVector t a) => u -> t -> Array a
-array (asVector -> s) (asVector -> v) = UnsafeArray s v
+array :: (FromVector t a) => [Int] -> t -> Array a
+array s (asVector -> v) = UnsafeArray s v
 
 infixl 4 ><
 
@@ -268,7 +268,7 @@ infixl 4 ><
 -- >>> pretty $ [2,3] >< [0..5]
 -- [[0,1,2],
 --  [3,4,5]]
-(><) :: (FromVector u Int) => (FromVector t a) => u -> t -> Array a
+(><) :: (FromVector t a) => [Int] -> t -> Array a
 (><) = array
 
 -- | Validate the size and shape of an array.
@@ -276,24 +276,24 @@ infixl 4 ><
 -- >>> validate (array [2,3,4] [1..23] :: Array Int)
 -- False
 validate :: Array a -> Bool
-validate a = V.product (shape a) == V.length (asVector a)
+validate a = size a == V.length (asVector a)
 
 -- | Construct an Array, checking shape.
 --
 -- >>> safeArray [2,3,4] [1..24] == Just a
 -- True
-safeArray :: (FromVector u Int) => (FromVector t a) => u -> t -> Maybe (Array a)
+safeArray :: (FromVector t a) => [Int] -> t -> Maybe (Array a)
 safeArray s v =
   bool Nothing (Just a) (validate a)
   where
-    a = UnsafeArray (asVector s) (asVector v)
+    a = UnsafeArray s (asVector v)
 
 -- | Unsafely modify an array shape
 --
 -- >>> unsafeModifyShape (fmap (+1) :: [Int] -> [Int]) (array [2,3] [0..5])
 -- UnsafeArray [3,4] [0,1,2,3,4,5]
-unsafeModifyShape :: (FromVector u Int) => (u -> u) -> Array a -> Array a
-unsafeModifyShape f (UnsafeArray s v) = UnsafeArray (asVector (f (vectorAs s))) v
+unsafeModifyShape :: ([Int] -> [Int]) -> Array a -> Array a
+unsafeModifyShape f (UnsafeArray s v) = UnsafeArray (f s) v
 
 -- | Unsafely modify an array vector
 --
@@ -311,31 +311,28 @@ unsafeModifyVector f (UnsafeArray s v) = UnsafeArray s (asVector (f (vectorAs v)
 -- >>> pretty $ fill 0 (array [3] [1..4])
 -- [1,2,3]
 fill :: a -> Array a -> Array a
-fill x (UnsafeArray s v) = UnsafeArray s (V.take (V.product s) (v <> V.replicate (V.product s - V.length v) x))
+fill x (UnsafeArray s v) = UnsafeArray s (V.take (S.size s) (v <> V.replicate (S.size s - V.length v) x))
 
 -- | shape of an Array
 --
 -- >>> shape a :: [Int]
 -- [2,3,4]
---
--- >>> shape a :: Array Int
--- UnsafeArray [3] [2,3,4]
-shape :: (FromVector u Int) => Array a -> u
-shape (UnsafeArray s _) = vectorAs s
+shape :: Array a -> [Int]
+shape (UnsafeArray s _) = s
 
 -- | rank of an Array
 --
 -- >>> rank a
 -- 3
 rank :: Array a -> Int
-rank = V.length . shape
+rank = List.length . shape
 
 -- | size of an Array, which is the total number of elements, if the Array is valid.
 --
 -- >>> size a
 -- 24
 size :: Array a -> Int
-size = V.product . shape
+size = S.size . shape
 
 -- | Number of rows (first dimension size) in an Array. As a convention, a scalar value is still a single row.
 --
@@ -359,43 +356,20 @@ isNull = (zero ==) . size
 empty :: Array a
 empty = array [0] []
 
-flattenV :: V.Vector Int -> V.Vector Int -> Int
-flattenV ns xs = V.sum $ V.zipWith (*) xs (V.drop 1 $ V.scanr (*) one ns)
-
-shapenV :: V.Vector Int -> Int -> V.Vector Int
-shapenV ns x = V.fromList $ S.shapen (V.toList ns) x
-
--- | convert from a shape index to a flat index
---
--- >>> flatten [2,3,4] [1,1,1]
--- 17
---
--- >>> flatten [] [1,1,1]
--- 0
-flatten :: (FromVector u Int) => u -> u -> Int
-flatten ns xs = flattenV (asVector ns) (asVector xs)
-
--- | convert from a flat index to a shape index
---
--- >>> shapen [2,3,4] 17
--- [1,1,1]
-shapen :: (FromVector u Int) => u -> Int -> u
-shapen ns x = vectorAs $ shapenV (asVector ns) x
-
 -- | extract an element at index /i/
 --
 -- >>> index a [1,2,3]
 -- 24
-index :: (FromVector u Int) => Array a -> u -> a
-index (UnsafeArray s v) i = V.unsafeIndex v (flattenV s (asVector i))
+index :: Array a -> [Int] -> a
+index (UnsafeArray s v) i = V.unsafeIndex v (S.flatten s i)
 
 -- | tabulate an array supplying a shape and a generating function
 --
 -- >>> tabulate [2,3,4] ((1+) . flatten [2,3,4]) == a
 -- True
-tabulate :: (FromVector u Int) => u -> (u -> a) -> Array a
+tabulate :: [Int] -> ([Int] -> a) -> Array a
 tabulate ds f =
-  UnsafeArray (asVector ds) (V.generate (V.product (asVector ds)) (f . shapen ds))
+  UnsafeArray ds (V.generate (V.product (asVector ds)) (f . S.shapen ds))
 
 -- | This is a more general backpermute function than contained in https://benl.ouroborus.net/papers/2010-rarrays/repa-icfp2010.pdf which is similar to:
 --
@@ -410,7 +384,7 @@ tabulate ds f =
 -- Backpermuting operations are interesting as they do not involve actual inspection of the underlying elements, and so should be conducive to performance streaming benefits.
 --
 -- > backpermute f g (backpermute f' g' a) == backpermute (f . f') (g . g') a
-backpermute :: (FromVector u Int) => (u -> u) -> (u -> u) -> Array a -> Array a
+backpermute :: ([Int] -> [Int]) -> ([Int] -> [Int]) -> Array a -> Array a
 backpermute f g a = tabulate (f (shape a)) (index a . g)
 {-# INLINEABLE backpermute #-}
 
@@ -446,14 +420,14 @@ isScalar a = rank a == zero
 -- >>> asSingleton (toScalar 4)
 -- UnsafeArray [1] [4]
 asSingleton :: Array a -> Array a
-asSingleton = unsafeModifyShape (\s -> bool s (V.singleton 1) (V.null s))
+asSingleton = unsafeModifyShape (\s -> bool s [1] (null s))
 
 -- | convert arrays with shape [1] to scalars
 --
 -- >>> asScalar (singleton 3)
 -- UnsafeArray [] [3]
 asScalar :: Array a -> Array a
-asScalar = unsafeModifyShape (\s -> bool s V.empty (s == V.singleton 1))
+asScalar = unsafeModifyShape (\s -> bool s [] (s == [1]))
 
 -- | A flat enumeration
 --
@@ -461,7 +435,7 @@ asScalar = unsafeModifyShape (\s -> bool s V.empty (s == V.singleton 1))
 -- [[0,1,2],
 --  [3,4,5]]
 range :: [Int] -> Array Int
-range xs = tabulate xs (flatten xs)
+range xs = tabulate xs (S.flatten xs)
 
 -- * operations
 
@@ -492,7 +466,7 @@ dimsWise f xs a = foldl' (\a' (d, x) -> f d x a') a xs
 -- [[[0,0],[0,1],[0,2]],
 --  [[1,0],[1,1],[1,2]],
 --  [[2,0],[2,1],[2,2]]]
-indices :: (FromVector u Int) => u -> Array u
+indices :: [Int] -> Array [Int]
 indices ds = tabulate ds id
 
 -- | Takes the top-most elements across the supplied dimensions. Negative values take the bottom-most.
@@ -623,7 +597,7 @@ reshape ::
   [Int] ->
   Array a ->
   Array a
-reshape s a = backpermute (const s) (shapen (shape a) . flatten s) a
+reshape s a = backpermute (const s) (S.shapen (shape a) . S.flatten s) a
 
 -- | Reshape an array, repeating the original array. The shape of the array should be a suffix of the new shape.
 --
@@ -651,11 +625,11 @@ cycle ::
   [Int] ->
   Array a ->
   Array a
-cycle s a = backpermute (const s) (shapen (shape a) . (`mod` (size a)) . flatten s) a
+cycle s a = backpermute (const s) (S.shapen (shape a) . (`mod` (size a)) . S.flatten s) a
 
 -- | windows xs are xs-sized windows of an array
 --
--- >>> D.shape @[Int] $ D.windows [2,2] (D.range [4,3,2])
+-- >>> D.shape $ D.windows [2,2] (D.range [4,3,2])
 -- [3,2,2,2,2]
 windows :: [Int] -> Array a -> Array a
 windows xs a = backpermute df wf a
@@ -686,7 +660,7 @@ rotate d r a = backpermute id (S.modifyDim d (\i -> (r + i) `mod` (shape a !! d)
 -- [[1,0],
 --  [0,1],
 --  [0,0]]
-ident :: (Additive a, Multiplicative a, FromVector u Int) => u -> Array a
+ident :: (Additive a, Multiplicative a) => [Int] -> Array a
 ident ds = tabulate ds (bool zero one . S.isDiag . vectorAs . asVector)
 
 -- | Extract the diagonal of an array.
@@ -732,7 +706,7 @@ konst ds a = tabulate ds (const a)
 -- >>> asVector (singleton 3) == asVector (toScalar 3)
 -- True
 singleton :: a -> Array a
-singleton a = UnsafeArray (V.singleton one) (V.singleton a)
+singleton a = UnsafeArray [1] (V.singleton a)
 
 -- | Select by dimension & index.
 --
@@ -795,7 +769,7 @@ traverses ds f a = join <$> traverse (traverse f) (extracts ds a)
 --
 -- > a == (fromScalar <$> extracts [0..rank a] a)
 --
--- >>> pretty $ (shape @[Int]) <$> extracts [0] a
+-- >>> pretty $ shape <$> extracts [0] a
 -- [[3,4],[3,4]]
 extracts ::
   [Int] ->
@@ -808,7 +782,7 @@ extracts ds a = tabulate (S.takeDims ds (shape a)) go
 -- | Extracts /except/ dimensions to an outer layer.
 --
 -- >>> let e = extractsExcept [1,2] a
--- >>> pretty $ shape @[Int] <$> extracts [0] a
+-- >>> pretty $ shape <$> extracts [0] a
 -- [[3,4],[3,4]]
 extractsExcept ::
   [Int] ->
@@ -846,7 +820,7 @@ joinsSafe ds a =
   bool
     (Left $ NumHaskException "raggedy inner arrays")
     (Right $ joins ds a)
-    (allEqual (fmap (shape @(Array Int)) a))
+    (allEqual (fmap shape a))
 
 -- | Join inner and outer dimension layers in outer dimension order.
 --
@@ -868,7 +842,7 @@ joinSafe a =
   bool
     (Left $ NumHaskException "raggedy inner arrays")
     (Right $ join a)
-    (allEqual (fmap (shape @(Array Int)) a))
+    (allEqual (fmap shape a))
 
 -- | Satisfy a predicate across all elements
 allEqual :: (Eq a) => Array a -> Bool
@@ -878,7 +852,7 @@ allEqual a = case arrayAs a of
 
 -- | Maps a function along specified dimensions.
 --
--- >>> shape @[Int] $ maps [1] transpose a
+-- >>> shape $ maps [1] transpose a
 -- [4,3,2]
 maps ::
   [Int] ->
@@ -932,7 +906,7 @@ diffs ds f a = zips (fmap fst ds) f (drops ds a) (drops (fmap (second P.negate) 
 
 -- | Concatenate along a dimension.
 --
--- >>> shape @[Int] $ concatenate 1 a a
+-- >>> shape $ concatenate 1 a a
 -- [2,6,4]
 -- >>> concatenate 0 (toScalar 1) (toScalar 2)
 -- UnsafeArray [2] [1,2]
@@ -1260,9 +1234,9 @@ findNoOverlap i a = r
 
 -- | Change rank by adding new dimenaions at the front, if the new rank is greater, or combining dimensions (from left to right) into rows, if the new rank is lower.
 --
--- >>> shape @[Int] (rerank 4 a)
+-- >>> shape (rerank 4 a)
 -- [1,2,3,4]
--- >>> shape @[Int] (rerank 2 a)
+-- >>> shape (rerank 2 a)
 -- [6,4]
 rerank :: Int -> Array a -> Array a
 rerank r a = unsafeModifyShape (S.rerank r) a
@@ -1303,16 +1277,16 @@ reverses ds a = backpermute id (S.reverseIndex ds (shape a)) a
 -- | Remove single dimensions.
 --
 -- >>> let a' = array [2,1,3,4,1] [1..24] :: Array Int
--- >>> shape @[Int] $ squeeze a'
+-- >>> shape $ squeeze a'
 -- [2,3,4]
 squeeze ::
   Array a ->
   Array a
-squeeze a = unsafeModifyShape (V.fromList . S.squeeze . V.toList) a
+squeeze a = unsafeModifyShape S.squeeze a
 
 -- | Insert a single dimension at the supplied position.
 --
--- >>> shape @[Int] $ elongate 1 a
+-- >>> shape $ elongate 1 a
 -- [2,1,3,4]
 -- >>> elongate 0 (toScalar 1)
 -- UnsafeArray [1] [1]
@@ -1320,7 +1294,7 @@ elongate ::
   Int ->
   Array a ->
   Array a
-elongate d a = unsafeModifyShape (V.fromList . S.insertDim d 1 . V.toList) a
+elongate d a = unsafeModifyShape (S.insertDim d 1) a
 
 -- | Inflate an array by inserting a new dimension given a supplied dimension and size.
 --
@@ -1447,7 +1421,7 @@ cons = prepend 0
 uncons :: Array a -> (Array a, Array a)
 uncons a = (select 0 0 a, drop 0 1 a')
   where
-    a' = bool a (UnsafeArray (V.singleton 1) (asVector a)) (isScalar a)
+    a' = bool a (UnsafeArray [1] (asVector a)) (isScalar a)
 
 infix 5 :|
 
