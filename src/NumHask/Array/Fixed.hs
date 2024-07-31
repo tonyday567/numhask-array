@@ -440,7 +440,7 @@ selects ::
   ( HasShape s,
     HasShape ds,
     HasShape s',
-    s' ~ DropIndexes ds s
+    s' ~ DeleteDims ds s
   ) =>
   Proxy ds ->
   [Int] ->
@@ -448,7 +448,7 @@ selects ::
   Array s' a
 selects _ i a = tabulate go
   where
-    go s = index a (addIndexes ds i s)
+    go s = index a (insertDims ds i s)
     ds = shapeOf @ds
 
 -- | Select an index /except/ along specified dimensions.
@@ -464,7 +464,7 @@ selectsExcept ::
   ( HasShape s,
     HasShape ds,
     HasShape s',
-    s' ~ TakeIndexes ds s
+    s' ~ TakeDims ds s
   ) =>
   Proxy ds ->
   [Int] ->
@@ -472,7 +472,7 @@ selectsExcept ::
   Array s' a
 selectsExcept _ i a = tabulate go
   where
-    go s = index a (addIndexes ds s i)
+    go s = index a (insertDims ds s i)
     ds = shapeOf @ds
 
 -- | Fold along specified dimensions.
@@ -485,8 +485,8 @@ folds ::
     HasShape ds,
     HasShape si,
     HasShape so,
-    si ~ DropIndexes ds st,
-    so ~ TakeIndexes ds st
+    si ~ DeleteDims ds st,
+    so ~ TakeDims ds st
   ) =>
   (Array si a -> b) ->
   Proxy ds ->
@@ -507,8 +507,8 @@ extracts ::
     HasShape ds,
     HasShape si,
     HasShape so,
-    si ~ DropIndexes ds st,
-    so ~ TakeIndexes ds st
+    si ~ DeleteDims ds st,
+    so ~ TakeDims ds st
   ) =>
   Proxy ds ->
   Array st a ->
@@ -528,8 +528,8 @@ extractsExcept ::
     HasShape ds,
     HasShape si,
     HasShape so,
-    so ~ DropIndexes ds st,
-    si ~ TakeIndexes ds st
+    so ~ DeleteDims ds st,
+    si ~ TakeDims ds st
   ) =>
   Proxy ds ->
   Array st a ->
@@ -548,7 +548,7 @@ joins ::
   forall ds si st so a.
   ( HasShape st,
     HasShape ds,
-    st ~ AddIndexes ds so si,
+    st ~ InsertDims ds so si,
     HasShape si,
     HasShape so
   ) =>
@@ -557,7 +557,7 @@ joins ::
   Array st a
 joins _ a = tabulate go
   where
-    go s = index (index a (takeIndexes ds s)) (deleteIndexes ds s)
+    go s = index (index a (takeDims ds s)) (deleteDims ds s)
     ds = shapeOf @ds
 
 -- | Maps a function along specified dimensions.
@@ -572,10 +572,10 @@ maps ::
     HasShape si,
     HasShape si',
     HasShape so,
-    si ~ DropIndexes ds st,
-    so ~ TakeIndexes ds st,
-    st' ~ AddIndexes ds so si',
-    st ~ AddIndexes ds so si
+    si ~ DeleteDims ds st,
+    so ~ TakeDims ds st,
+    st' ~ InsertDims ds so si',
+    st ~ InsertDims ds so si
   ) =>
   (Array si a -> Array si' b) ->
   Proxy ds ->
@@ -607,10 +607,10 @@ concatenate _ s0 s1 = tabulate go
         (index s0 s)
         ( index
             s1
-            ( addIndex
+            ( insertDim
                 d
                 ((s !! d) - (ds0 !! d))
-                (deleteIndex d s)
+                (deleteDim d s)
             )
         )
         ((s !! d) >= (ds0 !! d))
@@ -628,7 +628,7 @@ concatenate _ s0 s1 = tabulate go
 --   [105,21,22,23,24]]]
 insert ::
   forall a s s' d i.
-  ( DropIndex d s ~ s',
+  ( DeleteDim d s ~ s',
     CheckInsert d i s,
     KnownNat i,
     KnownNat d,
@@ -644,7 +644,7 @@ insert ::
 insert _ _ a b = tabulate go
   where
     go s
-      | s !! d == i = index b (deleteIndex d s)
+      | s !! d == i = index b (deleteDim d s)
       | s !! d < i = index a s
       | otherwise = index a (decAt d s)
     d = fromIntegral $ natVal @d Proxy
@@ -657,9 +657,9 @@ insert _ _ a b = tabulate go
 --   :: Array [3, 4] Int -> Array [3, 3, 4] Int
 append ::
   forall a d s s'.
-  ( DropIndex d s ~ s',
-    CheckInsert d (Dimension s d - 1) s,
-    KnownNat (Dimension s d - 1),
+  ( DeleteDim d s ~ s',
+    CheckInsert d (IndexOf d s - 1) s,
+    KnownNat (IndexOf d s - 1),
     KnownNat d,
     HasShape s,
     HasShape s',
@@ -669,7 +669,7 @@ append ::
   Array s a ->
   Array s' a ->
   Array (Insert d s) a
-append d = insert d (Proxy :: Proxy (Dimension s d - 1))
+append d = insert d (Proxy :: Proxy (IndexOf d s - 1))
 
 -- | Change the order of dimensions.
 --
@@ -688,7 +688,7 @@ reorder ::
   Array (Reorder s ds) a
 reorder _ a = tabulate go
   where
-    go s = index a (addIndexes [] (shapeOf @ds) s)
+    go s = index a (insertDims [] (shapeOf @ds) s)
 
 -- | reverses order along specified dimensions.
 --
@@ -823,14 +823,14 @@ apply f a = tabulate (\i -> index f (take r i) (index a (drop r i)))
 --  [32,77]]
 contract ::
   forall a b s ss s' ds.
-  ( KnownNat (Minimum (TakeIndexes ds s)),
-    HasShape (TakeIndexes ds s),
+  ( KnownNat (Minimum (TakeDims ds s)),
+    HasShape (TakeDims ds s),
     HasShape s,
     HasShape ds,
     HasShape ss,
     HasShape s',
-    s' ~ DropIndexes ds s,
-    ss ~ '[Minimum (TakeIndexes ds s)]
+    s' ~ DeleteDims ds s,
+    ss ~ '[Minimum (TakeDims ds s)]
   ) =>
   (Array ss a -> b) ->
   Proxy ds ->
@@ -900,14 +900,14 @@ dot ::
   ( HasShape sa,
     HasShape sb,
     HasShape (sa ++ sb),
-    se ~ TakeIndexes '[Rank sa - 1, Rank sa] (sa ++ sb),
+    se ~ TakeDims '[Rank sa - 1, Rank sa] (sa ++ sb),
     HasShape se,
     KnownNat (Minimum se),
     KnownNat (Rank sa - 1),
     KnownNat (Rank sa),
     ss ~ '[Minimum se],
     HasShape ss,
-    s' ~ DropIndexes '[Rank sa - 1, Rank sa] (sa ++ sb),
+    s' ~ DeleteDims '[Rank sa - 1, Rank sa] (sa ++ sb),
     HasShape s'
   ) =>
   (Array ss c -> d) ->
@@ -949,14 +949,14 @@ mult ::
     HasShape sa,
     HasShape sb,
     HasShape (sa ++ sb),
-    se ~ TakeIndexes '[Rank sa - 1, Rank sa] (sa ++ sb),
+    se ~ TakeDims '[Rank sa - 1, Rank sa] (sa ++ sb),
     HasShape se,
     KnownNat (Minimum se),
     KnownNat (Rank sa - 1),
     KnownNat (Rank sa),
     ss ~ '[Minimum se],
     HasShape ss,
-    s' ~ DropIndexes '[Rank sa - 1, Rank sa] (sa ++ sb),
+    s' ~ DeleteDims '[Rank sa - 1, Rank sa] (sa ++ sb),
     HasShape s'
   ) =>
   Array sa a ->

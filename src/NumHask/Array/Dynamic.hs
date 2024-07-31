@@ -508,8 +508,8 @@ takes ::
   Array a
 takes ts a = backpermute dsNew (\s -> List.zipWith3 (\d' s' a' -> bool s' (s' + a' + d') (d' < 0)) xsNew s (shape a)) a
   where
-    dsNew = S.replaceIndexes ds xsAbs
-    xsNew = S.replaceIndexes ds xs (replicate (rank a) 0)
+    dsNew = S.replaceDims ds xsAbs
+    xsNew = S.replaceDims ds xs (replicate (rank a) 0)
     ds = fmap fst ts
     xs = fmap snd ts
     xsAbs = fmap abs xs
@@ -530,9 +530,9 @@ take ::
   Int ->
   Array a ->
   Array a
-take d t a = backpermute dsNew (S.modifyIndex d (\x -> x + bool 0 (d' + t) (t < 0))) a
+take d t a = backpermute dsNew (S.modifyDim d (\x -> x + bool 0 (d' + t) (t < 0))) a
   where
-    dsNew = S.modifyIndex d (\i -> min i (abs t))
+    dsNew = S.modifyDim d (\i -> min i (abs t))
     d' = shape a !! d
 
 -- | Drops the top-most elements. Negative values drop the bottom-most.
@@ -545,8 +545,8 @@ drops ::
   Array a
 drops ts a = backpermute dsNew (List.zipWith (\d' s' -> bool (d' + s') s' (d' < 0)) xsNew) a
   where
-    dsNew = S.modifyIndexes ds (fmap (flip (-)) xsAbs)
-    xsNew = S.replaceIndexes ds xs (replicate (rank a) 0)
+    dsNew = S.modifyDims ds (fmap (flip (-)) xsAbs)
+    xsNew = S.replaceDims ds xs (replicate (rank a) 0)
     ds = fmap fst ts
     xs = fmap snd ts
     xsAbs = fmap abs xs
@@ -565,9 +565,9 @@ drop ::
   Int ->
   Array a ->
   Array a
-drop d t a = backpermute dsNew (S.modifyIndex d (\x -> x + bool t 0 (t < 0))) a
+drop d t a = backpermute dsNew (S.modifyDim d (\x -> x + bool t 0 (t < 0))) a
   where
-    dsNew = S.replaceIndex d (d' - abs t)
+    dsNew = S.replaceDim d (d' - abs t)
     d' = shape a !! d
 
 -- | pad an array to form a new shape, supplying a default value for elements outside the shape of the old array. The old array is reranked to the rank of the new shape first.
@@ -676,7 +676,7 @@ rotate ::
   Int ->
   Array a ->
   Array a
-rotate d r a = backpermute id (S.modifyIndex d (\i -> (r + i) `mod` (shape a !! d))) a
+rotate d r a = backpermute id (S.modifyDim d (\i -> (r + i) `mod` (shape a !! d))) a
 
 -- | The identity array.
 --
@@ -743,7 +743,7 @@ select ::
   Int ->
   Array a ->
   Array a
-select d x a = backpermute (S.deleteIndex d) (S.addIndex d x) a
+select d x a = backpermute (S.deleteDim d) (S.insertDim d x) a
 
 -- | Select by (dimension,index) pairs.
 --
@@ -754,7 +754,7 @@ selects ::
   [(Int, Int)] ->
   Array a ->
   Array a
-selects ds a = backpermute (S.deleteIndexes ds') (S.addIndexes ds' xs) a
+selects ds a = backpermute (S.deleteDims ds') (S.insertDims ds' xs) a
   where
     ds' = fmap fst ds
     xs = fmap snd ds
@@ -774,7 +774,7 @@ reduces ::
   (Array a -> b) ->
   Array a ->
   Array b
-reduces ds f a = tabulate (S.takeIndexes ds' (shape a)) go
+reduces ds f a = tabulate (S.takeDims ds' (shape a)) go
   where
     ds' = S.exclude (rank a) ds
     go s = f (selects (List.zip ds' s) a)
@@ -799,7 +799,7 @@ extracts ::
   [Int] ->
   Array a ->
   Array (Array a)
-extracts ds a = tabulate (S.takeIndexes ds (shape a)) go
+extracts ds a = tabulate (S.takeDims ds (shape a)) go
   where
     go s = selects (List.zip ds s) a
 
@@ -824,9 +824,9 @@ joins ::
   [Int] ->
   Array (Array a) ->
   Array a
-joins ds a = tabulate (S.addIndexes ds so si) go
+joins ds a = tabulate (S.insertDims ds so si) go
   where
-    go s = index (index a (S.takeIndexes ds s)) (S.deleteIndexes ds s)
+    go s = index (index a (S.takeDims ds s)) (S.deleteDims ds s)
     so = shape a
     si = shape (index a (replicate (rank a) 0))
 
@@ -948,10 +948,10 @@ concatenate d a0 a1 = tabulate (S.concatenate d (shape a0') (shape a1')) go
         (index a0' s)
         ( index
             a1
-            ( S.addIndex
+            ( S.insertDim
                 d
                 ((s !! d) - (ds0 !! d))
-                (S.deleteIndex d s)
+                (S.deleteDim d s)
             )
         )
         ((s !! d) >= (ds0 !! d))
@@ -979,7 +979,7 @@ insert ::
 insert d i a b = tabulate (S.incAt d (shape (asSingleton a))) go
   where
     go s
-      | s !! d == i = index (asSingleton b) (S.deleteIndex d s)
+      | s !! d == i = index (asSingleton b) (S.deleteDim d s)
       | s !! d < i = index (asSingleton a) s
       | otherwise = index (asSingleton a) (S.decAt d s)
 
@@ -1013,7 +1013,7 @@ append ::
   Array a ->
   Array a ->
   Array a
-append d a b = insert d (S.dimension d (shape a)) a b
+append d a b = insert d (S.indexOf d (shape a)) a b
 
 -- | Insert along a dimension at the beginning.
 --
@@ -1189,7 +1189,7 @@ slice ::
   (Int, Int) ->
   Array a ->
   Array a
-slice d (o, l) a = backpermute (S.replaceIndex d l) (S.modifyIndex d (+ o)) a
+slice d (o, l) a = backpermute (S.replaceDim d l) (S.modifyDim d (+ o)) a
 
 -- | Slices along dimensions.
 --
@@ -1262,7 +1262,7 @@ reorder ::
   [Int] ->
   Array a ->
   Array a
-reorder ds a = backpermute (`S.reorder` ds) (\s -> S.addIndexes ds s []) a
+reorder ds a = backpermute (`S.reorder` ds) (\s -> S.insertDims ds s []) a
 
 -- | reverses order along specified dimensions.
 --
@@ -1299,7 +1299,7 @@ elongate ::
   Int ->
   Array a ->
   Array a
-elongate d a = unsafeModifyShape (V.fromList . S.addIndex d 1 . V.toList) a
+elongate d a = unsafeModifyShape (V.fromList . S.insertDim d 1 . V.toList) a
 
 -- | Inflate an array by inserting a new dimension given a supplied dimension and size.
 --
@@ -1311,7 +1311,7 @@ inflate ::
   Int ->
   Array a ->
   Array a
-inflate d n a = backpermute (S.addIndex d n) (S.deleteIndex d) a
+inflate d n a = backpermute (S.insertDim d n) (S.deleteDim d) a
 
 -- | Reverse indices eg transposes the element A/ijk/ to A/kji/.
 --

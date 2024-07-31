@@ -27,8 +27,8 @@ module NumHask.Array.Shape
     Ranks,
     size,
     Size,
-    dimension,
-    Dimension,
+    indexOf,
+    IndexOf,
     flattenL,
     shapenL,
     minimum,
@@ -38,28 +38,28 @@ module NumHask.Array.Shape
     checkIndexes,
     CheckIndexes,
     reverseIndex,
-    modifyIndex,
+    modifyDim,
     rotateIndex,
-    addIndex,
-    AddIndex,
-    deleteIndex,
-    DropIndex,
-    replaceIndex,
+    insertDim,
+    InsertDim,
+    deleteDim,
+    DeleteDim,
+    replaceDim,
     preDeletePositions,
     preInsertPositions,
     PosRelative,
     PosRelativeGo,
     DecMap,
-    addIndexes,
-    AddIndexes,
-    AddIndexesGo,
-    replaceIndexes,
-    modifyIndexes,
-    deleteIndexes,
-    DropIndexes,
-    DropIndexesGo,
-    takeIndexes,
-    TakeIndexes,
+    insertDims,
+    InsertDims,
+    InsertDimsGo,
+    replaceDims,
+    modifyDims,
+    deleteDims,
+    DeleteDims,
+    DeleteDimsGo,
+    takeDims,
+    TakeDims,
     exclude,
     Exclude,
     Enumerate,
@@ -223,21 +223,19 @@ rotate r xs = drop r' xs <> take r' xs
   where
     r' = r `mod` List.length xs
 
--- | dimension i xs is the i'th element of xs
+-- | indexOf i xs is the i'th element of xs (or zero if out-of-bounds)
 --
--- >>> dimension [] 0
--- 0
--- >>> dimension [2,3,4] 1
+-- >>> indexOf 1 [2,3,4]
 -- 3
-dimension :: Int -> [Int] -> Int
-dimension _ [] = 0
-dimension 0 (s : _) = s
-dimension n (_ : s) = dimension (n - 1) s
+indexOf :: Int -> [Int] -> Int
+indexOf 0 (s : _) = s
+indexOf n (_ : s) = indexOf (n - 1) s
+indexOf _ _ = error "indexOf outside bounds"
 
-type family Dimension (s :: [Nat]) (i :: Nat) :: Nat where
-  Dimension (s : _) 0 = s
-  Dimension (_ : s) n = Dimension s (n - 1)
-  Dimension _ _ = L.TypeError ('Text "dimension overflow")
+type family IndexOf (i :: Nat) (xs :: [Nat]) :: Nat where
+  IndexOf 0 (xs : _) = xs
+  IndexOf n (_ : xs) = IndexOf (n - 1) xs
+  IndexOf _ _ = L.TypeError ('Text "indexOf outside bounds")
 
 -- | minimum value in a list
 --
@@ -279,41 +277,41 @@ type family (a :: [k]) ++ (b :: [k]) :: [k] where
   '[] ++ b = b
   (a : as) ++ b = a : (as ++ b)
 
--- | delete the i'th dimension from a shape
+-- | delete the i'th dimension
 --
--- >>> deleteIndex 1 [2, 3, 4]
+-- >>> deleteDim 1 [2, 3, 4]
 -- [2,4]
--- >>> deleteIndex 2 []
+-- >>> deleteDim 2 []
 -- []
-deleteIndex :: Int -> [Int] -> [Int]
-deleteIndex i s = take i s ++ drop (i + 1) s
+deleteDim :: Int -> [Int] -> [Int]
+deleteDim i s = take i s ++ drop (i + 1) s
 
-type DropIndex i s = Take i s ++ Drop (i + 1) s
+type DeleteDim i s = Take i s ++ Drop (i + 1) s
 
--- | /addIndex i d s/ adds a new dimension to shape /s/ at position /i/
+-- | /insertDim i d s/ adds a new dimension to shape /s/ at position /i/
 --
--- >>> addIndex 1 3 [2,4]
+-- >>> insertDim 1 3 [2,4]
 -- [2,3,4]
--- >>> addIndex 0 4 []
+-- >>> insertDim 0 4 []
 -- [4]
-addIndex :: Int -> Int -> [Int] -> [Int]
-addIndex i d s = take i s ++ (d : drop i s)
+insertDim :: Int -> Int -> [Int] -> [Int]
+insertDim i d s = take i s ++ (d : drop i s)
 
-type AddIndex i d s = Take i s ++ (d : Drop i s)
+type InsertDim i d s = Take i s ++ (d : Drop i s)
 
 -- | modify an index at a specific dimension. Unmodified if out of bounds.
 --
--- >>> modifyIndex 0 (+1) [0,1,2]
+-- >>> modifyDim 0 (+1) [0,1,2]
 -- [1,1,2]
-modifyIndex :: Int -> (Int -> Int) -> [Int] -> [Int]
-modifyIndex d f xs = take d xs <> (pure . f) (xs List.!! d) <> drop (d + 1) xs
+modifyDim :: Int -> (Int -> Int) -> [Int] -> [Int]
+modifyDim d f xs = take d xs <> (pure . f) (xs List.!! d) <> drop (d + 1) xs
 
 -- | replace an index at a specific dimension.
 --
--- >>> replaceIndex 0 1 [2,3,4]
+-- >>> replaceDim 0 1 [2,3,4]
 -- [1,3,4]
-replaceIndex :: Int -> Int -> [Int] -> [Int]
-replaceIndex d x xs = modifyIndex d (const x) xs
+replaceDim :: Int -> Int -> [Int] -> [Int]
+replaceDim d x xs = modifyDim d (const x) xs
 
 -- | reverse an index along specific dimensions.
 --
@@ -333,7 +331,7 @@ type family ReverseGo (a :: [k]) (b :: [k]) :: [k] where
 -- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
 -- [1,1,2]
 rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
-rotateIndex rs s xs = foldr (\(d, r) acc -> modifyIndex d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
+rotateIndex rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
 
 -- | Convert a list of position that reference deletions according to a final shape to one that references deletions relative to an initial shape.
 --
@@ -379,71 +377,71 @@ type family DecMap (x :: Nat) (ys :: [Nat]) :: [Nat] where
 
 -- | drop dimensions of a shape according to a list of positions (where position refers to the initial shape)
 --
--- >>> deleteIndexes [1,0] [2, 3, 4]
+-- >>> deleteDims [1,0] [2, 3, 4]
 -- [4]
-deleteIndexes :: [Int] -> [Int] -> [Int]
-deleteIndexes i s = foldl' (flip deleteIndex) s (preDeletePositions i)
+deleteDims :: [Int] -> [Int] -> [Int]
+deleteDims i s = foldl' (flip deleteDim) s (preDeletePositions i)
 
-type family DropIndexes (i :: [Nat]) (s :: [Nat]) where
-  DropIndexes i s = DropIndexesGo (PosRelative i) s
+type family DeleteDims (i :: [Nat]) (s :: [Nat]) where
+  DeleteDims i s = DeleteDimsGo (PosRelative i) s
 
-type family DropIndexesGo (i :: [Nat]) (s :: [Nat]) where
-  DropIndexesGo '[] s = s
-  DropIndexesGo (i : is) s = DropIndexesGo is (DropIndex i s)
+type family DeleteDimsGo (i :: [Nat]) (s :: [Nat]) where
+  DeleteDimsGo '[] s = s
+  DeleteDimsGo (i : is) s = DeleteDimsGo is (DeleteDim i s)
 
 -- | insert a list of dimensions according to position and dimension lists.  Note that the list of positions references the final shape and not the initial shape.
 --
--- >>> addIndexes [0] [5] []
+-- >>> insertDims [0] [5] []
 -- [5]
--- >>> addIndexes [1,0] [3,2] [4]
+-- >>> insertDims [1,0] [3,2] [4]
 -- [2,3,4]
-addIndexes :: [Int] -> [Int] -> [Int] -> [Int]
-addIndexes xs ys as = addIndexesGo (preInsertPositions xs) ys as
+insertDims :: [Int] -> [Int] -> [Int] -> [Int]
+insertDims xs ys as = insertDimsGo (preInsertPositions xs) ys as
   where
-    addIndexesGo [] _ as' = as'
-    addIndexesGo (x : xs') (y : ys') as' = addIndexesGo xs' ys' (addIndex x y as')
-    addIndexesGo _ _ _ = throw (NumHaskException "mismatched ranks")
+    insertDimsGo [] _ as' = as'
+    insertDimsGo (x : xs') (y : ys') as' = insertDimsGo xs' ys' (insertDim x y as')
+    insertDimsGo _ _ _ = throw (NumHaskException "mismatched ranks")
 
-type family AddIndexes (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
-  AddIndexes xs ys as = AddIndexesGo (Reverse (PosRelative (Reverse xs))) ys as
+type family InsertDims (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
+  InsertDims xs ys as = InsertDimsGo (Reverse (PosRelative (Reverse xs))) ys as
 
-type family AddIndexesGo (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
-  AddIndexesGo '[] _ as' = as'
-  AddIndexesGo (x : xs') (y : ys') as' = AddIndexesGo xs' ys' (AddIndex x y as')
-  AddIndexesGo _ _ _ = L.TypeError ('Text "mismatched ranks")
+type family InsertDimsGo (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
+  InsertDimsGo '[] _ as' = as'
+  InsertDimsGo (x : xs') (y : ys') as' = InsertDimsGo xs' ys' (InsertDim x y as')
+  InsertDimsGo _ _ _ = L.TypeError ('Text "mismatched ranks")
 
 -- | replace indexes with a new value according to a dimension list.
 --
--- >>> replaceIndexes [0,1] [1,5] [2,3,4]
+-- >>> replaceDims [0,1] [1,5] [2,3,4]
 -- [1,5,4]
 --
--- >>> replaceIndexes [0] [3] []
+-- >>> replaceDims [0] [3] []
 -- [3]
-replaceIndexes :: [Int] -> [Int] -> [Int] -> [Int]
-replaceIndexes ds xs ns = foldl' (\ns' (d, x) -> replaceIndex d x ns') ns (zip ds xs)
+replaceDims :: [Int] -> [Int] -> [Int] -> [Int]
+replaceDims ds xs ns = foldl' (\ns' (d, x) -> replaceDim d x ns') ns (zip ds xs)
 
 -- | modify indexes with (separate) functions according to a dimension list.
 --
--- >>> modifyIndexes [0,1] [(+1), (+5)] [2,3,4]
+-- >>> modifyDims [0,1] [(+1), (+5)] [2,3,4]
 -- [3,8,4]
-modifyIndexes :: [Int] -> [Int -> Int] -> [Int] -> [Int]
-modifyIndexes ds fs ns = foldl' (\ns' (d, f) -> modifyIndex d f ns') ns (zip ds fs)
+modifyDims :: [Int] -> [Int -> Int] -> [Int] -> [Int]
+modifyDims ds fs ns = foldl' (\ns' (d, f) -> modifyDim d f ns') ns (zip ds fs)
 
--- | take list of dimensions according to position lists.
+-- | take dimensions by index.
 --
--- >>> takeIndexes [2,0] [2,3,4]
+-- >>> takeDims [2,0] [2,3,4]
 -- [4,2]
--- >>> S.takeIndexes [2] []
+-- >>> S.takeDims [2] []
 -- []
-takeIndexes :: [Int] -> [Int] -> [Int]
-takeIndexes _ [] = []
-takeIndexes i s = (s List.!!) <$> i
+takeDims :: [Int] -> [Int] -> [Int]
+takeDims _ [] = []
+takeDims i s = (s List.!!) <$> i
 
-type family TakeIndexes (i :: [Nat]) (s :: [Nat]) where
-  TakeIndexes '[] _ = '[]
-  TakeIndexes _ '[] = '[]
-  TakeIndexes (i : is) s =
-    (s !! i) ': TakeIndexes is s
+type family TakeDims (i :: [Nat]) (s :: [Nat]) where
+  TakeDims '[] _ = '[]
+  TakeDims _ '[] = '[]
+  TakeDims (i : is) s =
+    (s !! i) ': TakeDims is s
 
 type family (a :: [k]) !! (b :: Nat) :: k where
   (!!) '[] _ = L.TypeError ('Text "Index Underflow")
@@ -462,10 +460,10 @@ type family EnumerateGo (n :: Nat) where
 -- >>> exclude 3 [1,2]
 -- [0]
 exclude :: Int -> [Int] -> [Int]
-exclude r xs = deleteIndexes xs [0 .. (r - 1)]
+exclude r xs = deleteDims xs [0 .. (r - 1)]
 
 type family Exclude (r :: Nat) (i :: [Nat]) where
-  Exclude r i = DropIndexes (EnumerateGo r) i
+  Exclude r i = DeleteDims (EnumerateGo r) i
 
 -- | /checkIndex i n/ checks if /i/ is a valid index of a list of length /n/
 --
@@ -505,29 +503,29 @@ concatenate :: Int -> [Int] -> [Int] -> [Int]
 concatenate _ [] [] = [2]
 concatenate _ [] [x] = [x + 1]
 concatenate _ [x] [] = [x + 1]
-concatenate i s0 s1 = take i s0 ++ (dimension i s0 + dimension i s1 : drop (i + 1) s0)
+concatenate i s0 s1 = take i s0 ++ (indexOf i s0 + indexOf i s1 : drop (i + 1) s0)
 
-type Concatenate i s0 s1 = Take i s0 ++ (Dimension s0 i + Dimension s1 i : Drop (i + 1) s0)
+type Concatenate i s0 s1 = Take i s0 ++ (IndexOf i s0 + IndexOf i s1 : Drop (i + 1) s0)
 
 type CheckConcatenate i s0 s1 s =
   ( CheckIndex i (Rank s0)
-      && DropIndex i s0 == DropIndex i s1
+      && DeleteDim i s0 == DeleteDim i s1
       && Rank s0 == Rank s1
   )
     ~ 'True
 
 type CheckInsert d i s =
-  (CheckIndex d (Rank s) && CheckIndex i (Dimension s d)) ~ 'True
+  (CheckIndex d (Rank s) && CheckIndex i (IndexOf d s)) ~ 'True
 
-type Insert d s = Take d s ++ (Dimension s d + 1 : Drop (d + 1) s)
+type Insert d s = Take d s ++ (IndexOf d s + 1 : Drop (d + 1) s)
 
 -- | /incAt d s/ increments the index at /d/ of shape /s/ by one.
 incAt :: Int -> [Int] -> [Int]
-incAt d s = take d s ++ (dimension d s + 1 : drop (d + 1) s)
+incAt d s = take d s ++ (indexOf d s + 1 : drop (d + 1) s)
 
 -- | /decAt d s/ decrements the index at /d/ of shape /s/ by one.
 decAt :: Int -> [Int] -> [Int]
-decAt d s = take d s ++ (dimension d s - 1 : drop (d + 1) s)
+decAt d s = take d s ++ (indexOf d s - 1 : drop (d + 1) s)
 
 -- | /reorder s i/ reorders the dimensions of shape /s/ according to a list of positions /i/
 --
@@ -536,12 +534,12 @@ decAt d s = take d s ++ (dimension d s - 1 : drop (d + 1) s)
 reorder :: [Int] -> [Int] -> [Int]
 reorder [] _ = []
 reorder _ [] = []
-reorder s (d : ds) = dimension d s : reorder s ds
+reorder s (d : ds) = indexOf d s : reorder s ds
 
 type family Reorder (s :: [Nat]) (ds :: [Nat]) :: [Nat] where
   Reorder '[] _ = '[]
   Reorder _ '[] = '[]
-  Reorder s (d : ds) = Dimension s d : Reorder s ds
+  Reorder s (d : ds) = IndexOf d s : Reorder s ds
 
 type family CheckReorder (ds :: [Nat]) (s :: [Nat]) where
   CheckReorder ds s =
