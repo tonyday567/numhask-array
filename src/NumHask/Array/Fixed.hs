@@ -1,9 +1,9 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE RebindableSyntax #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RebindableSyntax #-}
+{-# LANGUAGE RoleAnnotations #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -136,13 +136,14 @@ import Prettyprinter hiding (dot)
 -- >>> [1,2,3] :: Array '[2,2] Int
 -- *** Exception: NumHaskException {errorMessage = "shape mismatch"}
 type role Array nominal representational
+
 newtype Array (s :: [Nat]) a where
   UnsafeArray :: V.Vector a -> Array s a
   deriving stock (Functor, Foldable, Generic, Traversable)
   deriving newtype (Eq, Eq1, Ord, Ord1, Show, Show1)
 
 pattern Array :: V.Vector a -> Array s a
-pattern Array { toVector } <- UnsafeArray toVector
+pattern Array {toVector} <- UnsafeArray toVector
 
 {-# COMPLETE Array #-}
 
@@ -180,7 +181,8 @@ newtype Array' (s :: [Nat]) a where
   deriving newtype (Eq, Eq1, Ord, Ord1, Show, Show1)
 
 instance
-  ( HasShape s, KnownNat (Rank s)
+  ( HasShape s,
+    KnownNat (Rank s)
   ) =>
   Data.Distributive.Distributive (Array' s)
   where
@@ -189,7 +191,8 @@ instance
 
 instance
   forall s.
-  ( HasShape s, KnownNat (Rank s)
+  ( HasShape s,
+    KnownNat (Rank s)
   ) =>
   Representable (Array' s)
   where
@@ -207,6 +210,7 @@ instance
   {-# INLINE index #-}
 
 -- * NumHask heirarchy
+
 instance
   ( Additive a,
     HasShape s
@@ -257,10 +261,10 @@ instance (HasShape s, MeetSemiLattice a) => MeetSemiLattice (Array s a) where
 instance (HasShape s, Subtractive a, Epsilon a) => Epsilon (Array s a) where
   epsilon = singleton epsilon
 
-instance (FromInteger a) => FromInteger (Array ('[]::[Nat]) a) where
+instance (FromInteger a) => FromInteger (Array ('[] :: [Nat]) a) where
   fromInteger x = toScalar (fromInteger x)
 
-instance (FromRational a) => FromRational (Array ('[]::[Nat]) a) where
+instance (FromRational a) => FromRational (Array ('[] :: [Nat]) a) where
   fromRational x = toScalar (fromRational x)
 
 instance
@@ -300,7 +304,7 @@ shapeA a = fromList (shape a)
 -- >>> rank a
 -- 3
 rank :: forall a s. (HasShape s) => Array s a -> Int
-rank  = S.rank . shape
+rank = S.rank . shape
 {-# INLINE rank #-}
 
 -- | Get size of an Array as a value.
@@ -308,9 +312,8 @@ rank  = S.rank . shape
 -- >>> size a
 -- 24
 size :: forall a s. (HasShape s) => Array s a -> Int
-size  = S.size . shape
+size = S.size . shape
 {-# INLINE size #-}
-
 
 -- | convert to a dynamic array with shape at the value level.
 toDynamic :: (HasShape s) => Array s a -> D.Array a
@@ -726,11 +729,9 @@ reorder _ a = tabulate go
 -- | reverses order along specified dimensions.
 --
 -- > reverses [0] a
---
 reverses ::
   forall a s.
-  ( HasShape s
-  ) =>
+  (HasShape s) =>
   [Int] ->
   Array s a ->
   Array s a
@@ -740,9 +741,8 @@ reverses ds a = tabulate (index a . reverseIndex ds s')
 
 rotates ::
   forall a s.
-  ( HasShape s
-  ) =>
-  [(Int,Int)] ->
+  (HasShape s) =>
+  [(Int, Int)] ->
   Array s a ->
   Array s a
 rotates rs a = tabulate (index a . rotateIndex rs s')

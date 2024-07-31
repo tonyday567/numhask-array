@@ -83,13 +83,13 @@ module NumHask.Array.Shape
   )
 where
 
+import Data.List qualified as List
 import Data.Proxy
 import Data.Type.Bool
 import Data.Type.Equality
 import GHC.TypeLits as L
 import NumHask.Prelude as P hiding (Last, minimum)
 import Prelude qualified
-import Data.List qualified as List
 
 -- $setup
 -- >>> :m -Prelude
@@ -102,41 +102,41 @@ import Data.List qualified as List
 
 class ShapeP (s :: [Nat]) where
   shapeP :: Proxy s -> [Int]
-  sizeP  :: Proxy s -> Int
+  sizeP :: Proxy s -> Int
 
 instance ShapeP '[] where
   {-# INLINE shapeP #-}
   shapeP _ = []
   {-# INLINE sizeP #-}
-  sizeP  _ = 1
+  sizeP _ = 1
 
 -- | Get the value of a type level Nat.
 -- Use with explicit type application, i.e., @valueOf \@42@
 {-# INLINE valueOf #-}
-valueOf :: forall n i . (KnownNat n, Num i) => i
+valueOf :: forall n i. (KnownNat n, Num i) => i
 valueOf = Prelude.fromInteger $ natVal (Proxy :: Proxy n)
 
-instance forall n s . (ShapeP s, KnownNat n) => ShapeP (n ': s) where
+instance forall n s. (ShapeP s, KnownNat n) => ShapeP (n ': s) where
   {-# INLINE shapeP #-}
   shapeP _ = valueOf @n : shapeP (Proxy :: Proxy s)
   {-# INLINE sizeP #-}
-  sizeP  _ = valueOf @n * sizeP  (Proxy :: Proxy s)
+  sizeP _ = valueOf @n * sizeP (Proxy :: Proxy s)
 
 {-# INLINE shapeT #-}
-shapeT :: forall sh . (ShapeP sh) => [Int]
+shapeT :: forall sh. (ShapeP sh) => [Int]
 shapeT = shapeP (Proxy :: Proxy sh)
 
 -- | Turn a dynamic shape back into a type level shape.
 -- @withShape sh shapeP == sh@
-withShapeP :: [Int] -> (forall sh . (ShapeP sh) => Proxy sh -> r) -> r
+withShapeP :: [Int] -> (forall sh. (ShapeP sh) => Proxy sh -> r) -> r
 withShapeP [] f = f (Proxy :: Proxy ('[] :: [Nat]))
-withShapeP (n:ns) f =
+withShapeP (n : ns) f =
   case someNatVal (Prelude.toInteger n) of
-    Just (SomeNat (_ :: Proxy n)) -> withShapeP ns (\ (_ :: Proxy ns) -> f (Proxy :: Proxy (n ': ns)))
+    Just (SomeNat (_ :: Proxy n)) -> withShapeP ns (\(_ :: Proxy ns) -> f (Proxy :: Proxy (n ': ns)))
     _ -> error $ "withShape: bad size " ++ show n
 
-withShape :: [Int] -> (forall sh . (ShapeP sh) => r) -> r
-withShape sh f = withShapeP sh (\ (_ :: Proxy sh) -> f @sh)
+withShape :: [Int] -> (forall sh. (ShapeP sh) => r) -> r
+withShape sh f = withShapeP sh (\(_ :: Proxy sh) -> f @sh)
 
 -- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
 -- Using [Int] as the index for an array nicely represents the practical interests and constraints downstream of this high-level API: densely-packed numbers (reals or integrals), indexed and layered.
@@ -168,9 +168,9 @@ type family Rank (s :: [a]) :: Nat where
 -- [6,4]
 rerank :: Int -> [Int] -> [Int]
 rerank r xs =
-  replicate (r - r') one <>
-  bool [] [product (take (r' - r + 1) xs)] (r<=r') <>
-  drop (r' - r + 1) xs
+  replicate (r - r') one
+    <> bool [] [product (take (r' - r + 1) xs)] (r <= r')
+    <> drop (r' - r + 1) xs
   where
     r' = rank xs
 
@@ -226,12 +226,11 @@ shapenL ns x =
       ns
 {-# INLINE shapenL #-}
 
-isDiag :: Eq a => [a] -> Bool
+isDiag :: (Eq a) => [a] -> Bool
 isDiag [] = True
 isDiag [_] = True
 isDiag [x, y] = x == y
 isDiag (x : y : xs) = x == y && isDiag (y : xs)
-
 
 -- | checks if indices are valid ie they are inside a shape.
 --
@@ -242,7 +241,7 @@ isDiag (x : y : xs) = x == y && isDiag (y : xs)
 -- >>> [-1] `inside` [1]
 -- False
 inside :: [Int] -> [Int] -> Bool
-inside i r = all id $ List.zipWith (\i' r' -> i' >= zero && i' < r') i r
+inside i r = List.and $ List.zipWith (\i' r' -> i' >= zero && i' < r') i r
 
 -- | rotate a list
 --
@@ -359,7 +358,7 @@ type AddIndex i d s = Take i s ++ (d : Drop i s)
 -- >>> modifyIndex 0 (+1) [0,1,2]
 -- [1,1,2]
 modifyIndex :: Int -> (Int -> Int) -> [Int] -> [Int]
-modifyIndex d f xs = take d xs <> maybe [] (pure . f) (xs List.!? d) <> drop (d+1) xs
+modifyIndex d f xs = take d xs <> maybe [] (pure . f) (xs List.!? d) <> drop (d + 1) xs
 
 -- | replace an index at a specific dimension.
 --
@@ -373,7 +372,7 @@ replaceIndex d x xs = modifyIndex d (const x) xs
 -- >>> reverseIndex [0] [2,3,4] [0,1,2]
 -- [1,1,2]
 reverseIndex :: [Int] -> [Int] -> [Int] -> [Int]
-reverseIndex ds ns xs = fmap (\(i,x,n) -> bool x (n-1-x) (i `elem` ds)) (zip3 [0..] xs ns)
+reverseIndex ds ns xs = fmap (\(i, x, n) -> bool x (n - 1 - x) (i `elem` ds)) (zip3 [0 ..] xs ns)
 
 type Reverse (a :: [k]) = ReverseGo a '[]
 
@@ -385,8 +384,8 @@ type family ReverseGo (a :: [k]) (b :: [k]) :: [k] where
 --
 -- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
 -- [1,1,2]
-rotateIndex :: [(Int,Int)] -> [Int] -> [Int] -> [Int]
-rotateIndex rs s xs = foldr (\(d,r) acc -> modifyIndex d (\x -> maybe x ((x+r) `mod`) (s List.!? d)) acc) xs rs
+rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
+rotateIndex rs s xs = foldr (\(d, r) acc -> modifyIndex d (\x -> maybe x ((x + r) `mod`) (s List.!? d)) acc) xs rs
 
 -- | Convert a list of position that reference deletions according to a final shape to one that references deletions relative to an initial shape.
 --
@@ -416,7 +415,6 @@ preDeletePositions as = reverse (go [] as)
 --
 -- >>> preInsertPositions [1,2,0]
 -- [0,1,0]
---
 preInsertPositions :: [Int] -> [Int]
 preInsertPositions = reverse . preDeletePositions . reverse
 
@@ -474,14 +472,14 @@ type family AddIndexesGo (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
 -- >>> replaceIndexes [0] [3] []
 -- []
 replaceIndexes :: [Int] -> [Int] -> [Int] -> [Int]
-replaceIndexes ds xs ns = foldl' (\ns' (d,x) -> replaceIndex d x ns') ns (zip ds xs)
+replaceIndexes ds xs ns = foldl' (\ns' (d, x) -> replaceIndex d x ns') ns (zip ds xs)
 
 -- | modify indexes with (separate) functions according to a dimension list.
 --
 -- >>> modifyIndexes [0,1] [(+1), (+5)] [2,3,4]
 -- [3,8,4]
-modifyIndexes :: [Int] -> [(Int -> Int)] -> [Int] -> [Int]
-modifyIndexes ds fs ns = foldl' (\ns' (d,f) -> modifyIndex d f ns') ns (zip ds fs)
+modifyIndexes :: [Int] -> [Int -> Int] -> [Int] -> [Int]
+modifyIndexes ds fs ns = foldl' (\ns' (d, f) -> modifyIndex d f ns') ns (zip ds fs)
 
 -- | take list of dimensions according to position lists.
 --
@@ -491,7 +489,7 @@ modifyIndexes ds fs ns = foldl' (\ns' (d,f) -> modifyIndex d f ns') ns (zip ds f
 -- []
 takeIndexes :: [Int] -> [Int] -> [Int]
 takeIndexes _ [] = []
-takeIndexes i s = (fromMaybe 0 . (s List.!?)) <$> i
+takeIndexes i s = fromMaybe 0 . (s List.!?) <$> i
 
 type family TakeIndexes (i :: [Nat]) (s :: [Nat]) where
   TakeIndexes '[] _ = '[]
@@ -535,8 +533,8 @@ type family Exclude (r :: Nat) (i :: [Nat]) where
 -- [2]
 concatenate :: Int -> [Int] -> [Int] -> [Int]
 concatenate _ [] [] = [2]
-concatenate _ [] [x] = [x+1]
-concatenate _ [x] [] = [x+1]
+concatenate _ [] [x] = [x + 1]
+concatenate _ [x] [] = [x + 1]
 concatenate i s0 s1 = take i s0 ++ (dimension s0 i + dimension s1 i : drop (i + 1) s0)
 
 type Concatenate i s0 s1 = Take i s0 ++ (Dimension s0 i + Dimension s1 i : Drop (i + 1) s0)

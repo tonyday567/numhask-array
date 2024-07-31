@@ -52,6 +52,7 @@
 # - ignore: {name: Use const, within: SpecialModule} # Only within certain modules
 - ignore: {name: Use -}
 - ignore: {name: Eta reduce}
+- ignore: {name: Drop on a non-positive}
 
 # Define some custom infix operators
 # - fixity: infixr 3 ~^#^~
