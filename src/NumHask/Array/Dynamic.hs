@@ -32,11 +32,12 @@ module NumHask.Array.Dynamic
 
     -- * indexing
     index,
+    (!),
+    (!?),
     tabulate,
     S.flatten,
     S.shapen,
     backpermute,
-
     -- Scalar conversions
     fromScalar,
     toScalar,
@@ -362,6 +363,24 @@ empty = array [0] []
 -- 24
 index :: Array a -> [Int] -> a
 index (UnsafeArray s v) i = V.unsafeIndex v (S.flatten s i)
+
+infixl 9 !
+
+-- | extract an element at index /i/, unsafely
+--
+-- >>> a ! [1,2,3]
+-- 24
+(!) :: Array a -> [Int] -> a
+(!) = index
+
+-- | extract an element at index /i/, safely
+--
+-- >>> a !? [1,2,3]
+-- Just 24
+-- >>> a !? [2,3,1]
+-- Nothing
+(!?) :: Array a -> [Int] -> Maybe a
+(!?) a xs = bool Nothing (Just (a ! xs)) (xs `S.inside` shape a)
 
 -- | tabulate an array supplying a shape and a generating function
 --
@@ -991,8 +1010,6 @@ append ::
   Array a
 append d a b = insert d (S.indexOf d (shape a)) a b
 
-
-
 -- | Insert along a dimension at the beginning.
 --
 -- >>> pretty $ prepend 2 (array [2,3] [100..105]) a
@@ -1169,7 +1186,7 @@ mult ::
   Array a
 mult = dot sum (*)
 
--- | Slice along a dimension.
+-- | Slice along a dimension with the supplied (offset, length)
 --
 -- >>> let s = slice 2 (1,2) a
 -- >>> pretty s

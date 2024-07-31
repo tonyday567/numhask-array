@@ -176,6 +176,7 @@ instance
   {-# INLINE index #-}
 
 -- * NumHask heirarchy
+
 instance
   ( Additive a,
     HasShape s

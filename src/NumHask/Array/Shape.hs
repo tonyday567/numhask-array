@@ -482,7 +482,6 @@ type family CheckIndexes (i :: [Nat]) (n :: Nat) :: Bool where
   CheckIndexes '[] _ = 'True
   CheckIndexes (i : is) n = CheckIndex i n && CheckIndexes is n
 
-
 -- | concatenate two arrays at dimension i
 --
 -- Bespoke logic for scalars.
