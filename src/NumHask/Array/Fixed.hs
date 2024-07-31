@@ -496,7 +496,7 @@ selectsExcept ::
   ( HasShape s,
     HasShape ds,
     HasShape s',
-    s' ~ TakeIndexes s ds
+    s' ~ TakeIndexes ds s
   ) =>
   Proxy ds ->
   [Int] ->
@@ -504,7 +504,7 @@ selectsExcept ::
   Array s' a
 selectsExcept _ i a = tabulate go
   where
-    go s = index a (addIndexes i ds s)
+    go s = index a (addIndexes ds s i)
     ds = shapeVal (toShape @ds)
 
 -- | Fold along specified dimensions.
@@ -561,7 +561,7 @@ extractsExcept ::
     HasShape si,
     HasShape so,
     so ~ DropIndexes ds st,
-    si ~ TakeIndexes st ds
+    si ~ TakeIndexes ds st
   ) =>
   Proxy ds ->
   Array st a ->
@@ -573,22 +573,14 @@ extractsExcept d a = tabulate go
 -- | Join inner and outer dimension layers.
 --
 -- >>> let e = extracts (Proxy :: Proxy '[1,0]) a
---
--- >>> :t e
--- e :: Array [3, 2] (Array '[4] Int)
---
 -- >>> let j = joins (Proxy :: Proxy '[1,0]) e
---
--- >>> :t j
--- j :: Array [2, 3, 4] Int
---
 -- >>> a == j
 -- True
 joins ::
   forall ds si st so a.
   ( HasShape st,
     HasShape ds,
-    st ~ AddIndexes si ds so,
+    st ~ AddIndexes ds so si,
     HasShape si,
     HasShape so
   ) =>
@@ -597,7 +589,7 @@ joins ::
   Array st a
 joins _ a = tabulate go
   where
-    go s = index (index a (takeIndexes s ds)) (deleteIndexes s ds)
+    go s = index (index a (takeIndexes ds s)) (deleteIndexes ds s)
     ds = shapeVal (toShape @ds)
 
 -- | Maps a function along specified dimensions.
@@ -614,8 +606,8 @@ maps ::
     HasShape so,
     si ~ DropIndexes ds st,
     so ~ TakeIndexes ds st,
-    st' ~ AddIndexes si' ds so,
-    st ~ AddIndexes so si ds
+    st' ~ AddIndexes ds so si',
+    st ~ AddIndexes ds so si
   ) =>
   (Array si a -> Array si' b) ->
   Proxy ds ->
@@ -871,14 +863,14 @@ apply f a = tabulate (\i -> index f (take r i) (index a (drop r i)))
 --  [32,77]]
 contract ::
   forall a b s ss s' ds.
-  ( KnownNat (Minimum (TakeIndexes s ds)),
-    HasShape (TakeIndexes s ds),
+  ( KnownNat (Minimum (TakeIndexes ds s)),
+    HasShape (TakeIndexes ds s),
     HasShape s,
     HasShape ds,
     HasShape ss,
     HasShape s',
     s' ~ DropIndexes ds s,
-    ss ~ '[Minimum (TakeIndexes s ds)]
+    ss ~ '[Minimum (TakeIndexes ds s)]
   ) =>
   (Array ss a -> b) ->
   Proxy ds ->
@@ -948,7 +940,7 @@ dot ::
   ( HasShape sa,
     HasShape sb,
     HasShape (sa ++ sb),
-    se ~ TakeIndexes (sa ++ sb) '[Rank sa - 1, Rank sa],
+    se ~ TakeIndexes '[Rank sa - 1, Rank sa] (sa ++ sb),
     HasShape se,
     KnownNat (Minimum se),
     KnownNat (Rank sa - 1),
@@ -997,7 +989,7 @@ mult ::
     HasShape sa,
     HasShape sb,
     HasShape (sa ++ sb),
-    se ~ TakeIndexes (sa ++ sb) '[Rank sa - 1, Rank sa],
+    se ~ TakeIndexes '[Rank sa - 1, Rank sa] (sa ++ sb),
     HasShape se,
     KnownNat (Minimum se),
     KnownNat (Rank sa - 1),

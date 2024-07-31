@@ -309,10 +309,12 @@ type family Minimum (s :: [Nat]) :: Nat where
   Minimum (x : xs) = If (x <=? Minimum xs) x (Minimum xs)
 
 type family Take (n :: Nat) (a :: [k]) :: [k] where
+  Take _ '[] = '[]
   Take 0 _ = '[]
   Take n (x : xs) = x : Take (n - 1) xs
 
 type family Drop (n :: Nat) (a :: [k]) :: [k] where
+  Drop _ '[] = '[]
   Drop 0 xs = xs
   Drop n (_ : xs) = Drop (n - 1) xs
 
@@ -457,7 +459,7 @@ addIndexes xs ys as = addIndexesGo (preInsertPositions xs) ys as
     addIndexesGo _ _ _ = throw (NumHaskException "mismatched ranks")
 
 type family AddIndexes (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
-  AddIndexes xs ys as = AddIndexesGo xs ys (Reverse (PosRelative (Reverse as)))
+  AddIndexes xs ys as = AddIndexesGo (Reverse (PosRelative (Reverse xs))) ys as
 
 type family AddIndexesGo (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
   AddIndexesGo '[] _ as' = as'
