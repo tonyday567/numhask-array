@@ -167,50 +167,15 @@ instance
   tabulate f =
     UnsafeArray . V.generate (S.size s) $ (f . shapenL s)
     where
-      s = shapeVal $ toShape @s
+      s = shapeOf @s
   {-# INLINE tabulate #-}
 
   index (Array v) i = V.unsafeIndex v (flattenL s i)
     where
-      s = shapeVal (toShape @s)
-  {-# INLINE index #-}
-
-newtype Array' (s :: [Nat]) a where
-  UnsafeArray' :: V.Vector a -> Array' s a
-  deriving stock (Functor, Foldable, Generic, Traversable)
-  deriving newtype (Eq, Eq1, Ord, Ord1, Show, Show1)
-
-instance
-  ( HasShape s,
-    KnownNat (Rank s)
-  ) =>
-  Data.Distributive.Distributive (Array' s)
-  where
-  distribute = distributeRep
-  {-# INLINE distribute #-}
-
-instance
-  forall s.
-  ( HasShape s,
-    KnownNat (Rank s)
-  ) =>
-  Representable (Array' s)
-  where
-  type Rep (Array' s) = Array '[Rank s] Int
-
-  tabulate f =
-    UnsafeArray' . V.generate (S.size s) $ (f . fromList . shapenL s)
-    where
-      s = shapeVal $ toShape @s
-  {-# INLINE tabulate #-}
-
-  index (UnsafeArray' v) i = V.unsafeIndex v (flattenL s (toList i))
-    where
-      s = shapeVal (toShape @s)
+      s = shapeOf @s
   {-# INLINE index #-}
 
 -- * NumHask heirarchy
-
 instance
   ( Additive a,
     HasShape s
@@ -279,7 +244,7 @@ instance
       (UnsafeArray $ V.fromList l)
       ((length l == 1 && null ds) || (length l == S.size ds))
     where
-      ds = shapeVal (toShape @s)
+      ds = shapeOf @s
 
   toList (Array v) = V.toList v
 
@@ -288,7 +253,7 @@ instance
 -- >>> shape a
 -- [2,3,4]
 shape :: forall a s. (HasShape s) => Array s a -> [Int]
-shape _ = shapeVal $ toShape @s
+shape _ = shapeOf @s
 {-# INLINE shape #-}
 
 -- | Get shape of an Array as an Array.
@@ -374,8 +339,8 @@ reshape ::
   Array s' a
 reshape a = tabulate (index a . shapenL s . flattenL s')
   where
-    s = shapeVal (toShape @s)
-    s' = shapeVal (toShape @s')
+    s = shapeOf @s
+    s' = shapeOf @s'
 
 -- | Reverse indices eg transposes the element A/ijk/ to A/kji/.
 --
@@ -433,7 +398,7 @@ diag a = tabulate go
   where
     go [] = throw (NumHaskException "Rank Underflow")
     go (s' : _) = index a (replicate (length ds) s')
-    ds = shapeVal (toShape @s)
+    ds = shapeOf @s
 
 -- | Expand the array to form a diagonal array
 --
@@ -484,7 +449,7 @@ selects ::
 selects _ i a = tabulate go
   where
     go s = index a (addIndexes ds i s)
-    ds = shapeVal (toShape @ds)
+    ds = shapeOf @ds
 
 -- | Select an index /except/ along specified dimensions.
 --
@@ -508,7 +473,7 @@ selectsExcept ::
 selectsExcept _ i a = tabulate go
   where
     go s = index a (addIndexes ds s i)
-    ds = shapeVal (toShape @ds)
+    ds = shapeOf @ds
 
 -- | Fold along specified dimensions.
 --
@@ -593,7 +558,7 @@ joins ::
 joins _ a = tabulate go
   where
     go s = index (index a (takeIndexes ds s)) (deleteIndexes ds s)
-    ds = shapeVal (toShape @ds)
+    ds = shapeOf @ds
 
 -- | Maps a function along specified dimensions.
 --
@@ -649,8 +614,8 @@ concatenate _ s0 s1 = tabulate go
             )
         )
         ((s !! d) >= (ds0 !! d))
-    ds0 = shapeVal (toShape @s0)
-    d = fromIntegral $ natVal @d Proxy
+    ds0 = shapeOf @s0
+    d = valueOf @d
 
 -- | Insert along a dimension at a position.
 --
@@ -723,8 +688,7 @@ reorder ::
   Array (Reorder s ds) a
 reorder _ a = tabulate go
   where
-    go s = index a (addIndexes [] ds s)
-    ds = shapeVal (toShape @ds)
+    go s = index a (addIndexes [] (shapeOf @ds) s)
 
 -- | reverses order along specified dimensions.
 --
@@ -735,9 +699,7 @@ reverses ::
   [Int] ->
   Array s a ->
   Array s a
-reverses ds a = tabulate (index a . reverseIndex ds s')
-  where
-    s' = shapeVal (toShape @s)
+reverses ds a = tabulate (index a . reverseIndex ds (shapeOf @s))
 
 rotates ::
   forall a s.
@@ -745,9 +707,7 @@ rotates ::
   [(Int, Int)] ->
   Array s a ->
   Array s a
-rotates rs a = tabulate (index a . rotateIndex rs s')
-  where
-    s' = shapeVal (toShape @s)
+rotates rs a = tabulate (index a . rotateIndex rs (shapeOf @s))
 
 -- | Product two arrays using the supplied binary function.
 --

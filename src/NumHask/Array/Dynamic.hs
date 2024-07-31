@@ -415,7 +415,7 @@ backpermute f g a = tabulate (f (shape a)) (index a . g)
 {- RULES
    "backpermute/backpermute" forall f f' g g' (a :: forall a. Array a)). backpermute f g (backpermute f' g' a) == backpermute (f . f') (g . g') a
 
-  -}
+-}
 
 -- | Extract a value from a scalar. Unwrapping scalars is probably a performance bottleneck.
 --
@@ -1013,7 +1013,7 @@ append ::
   Array a ->
   Array a ->
   Array a
-append d a b = insert d (S.dimension (shape a) d) a b
+append d a b = insert d (S.dimension d (shape a)) a b
 
 -- | Insert along a dimension at the beginning.
 --

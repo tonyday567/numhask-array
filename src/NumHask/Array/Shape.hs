@@ -6,12 +6,10 @@
 
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
-  ( ShapeP (..),
-    withShapeP,
-    withShape,
-    shapeT,
+  ( valueOf,
     Shape (..),
     HasShape (..),
+    shapeOf,
     isDiag,
     inside,
     rotate,
@@ -89,7 +87,6 @@ import Data.Type.Bool
 import Data.Type.Equality
 import GHC.TypeLits as L
 import NumHask.Prelude as P hiding (Last, minimum)
-import Prelude qualified
 
 -- $setup
 -- >>> :m -Prelude
@@ -100,43 +97,11 @@ import Prelude qualified
 -- >>> import NumHask.Prelude
 -- >>> import NumHask.Array.Shape as S
 
-class ShapeP (s :: [Nat]) where
-  shapeP :: Proxy s -> [Int]
-  sizeP :: Proxy s -> Int
-
-instance ShapeP '[] where
-  {-# INLINE shapeP #-}
-  shapeP _ = []
-  {-# INLINE sizeP #-}
-  sizeP _ = 1
-
 -- | Get the value of a type level Nat.
 -- Use with explicit type application, i.e., @valueOf \@42@
+valueOf :: forall n. (KnownNat n) => Int
+valueOf = fromIntegral $ natVal (Proxy :: Proxy n)
 {-# INLINE valueOf #-}
-valueOf :: forall n i. (KnownNat n, Num i) => i
-valueOf = Prelude.fromInteger $ natVal (Proxy :: Proxy n)
-
-instance forall n s. (ShapeP s, KnownNat n) => ShapeP (n ': s) where
-  {-# INLINE shapeP #-}
-  shapeP _ = valueOf @n : shapeP (Proxy :: Proxy s)
-  {-# INLINE sizeP #-}
-  sizeP _ = valueOf @n * sizeP (Proxy :: Proxy s)
-
-{-# INLINE shapeT #-}
-shapeT :: forall sh. (ShapeP sh) => [Int]
-shapeT = shapeP (Proxy :: Proxy sh)
-
--- | Turn a dynamic shape back into a type level shape.
--- @withShape sh shapeP == sh@
-withShapeP :: [Int] -> (forall sh. (ShapeP sh) => Proxy sh -> r) -> r
-withShapeP [] f = f (Proxy :: Proxy ('[] :: [Nat]))
-withShapeP (n : ns) f =
-  case someNatVal (Prelude.toInteger n) of
-    Just (SomeNat (_ :: Proxy n)) -> withShapeP ns (\(_ :: Proxy ns) -> f (Proxy :: Proxy (n ': ns)))
-    _ -> error $ "withShape: bad size " ++ show n
-
-withShape :: [Int] -> (forall sh. (ShapeP sh) => r) -> r
-withShape sh f = withShapeP sh (\(_ :: Proxy sh) -> f @sh)
 
 -- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
 -- Using [Int] as the index for an array nicely represents the practical interests and constraints downstream of this high-level API: densely-packed numbers (reals or integrals), indexed and layered.
@@ -150,6 +115,10 @@ instance HasShape '[] where
 
 instance (KnownNat n, HasShape s) => HasShape (n : s) where
   toShape = Shape $ fromInteger (natVal (Proxy :: Proxy n)) : shapeVal (toShape :: Shape s)
+
+shapeOf :: forall s. (HasShape s) => [Int]
+shapeOf = shapeVal (toShape @s)
+{-# INLINE shapeOf #-}
 
 -- | Number of dimensions
 rank :: [a] -> Int
@@ -254,37 +223,16 @@ rotate r xs = drop r' xs <> take r' xs
   where
     r' = r `mod` List.length xs
 
--- | /checkIndex i n/ checks if /i/ is a valid index of a list of length /n/
---
--- >>> checkIndex 0 0
--- True
--- >>> checkIndex 3 2
--- False
-checkIndex :: Int -> Int -> Bool
-checkIndex i n = (zero <= i && i + one <= n) || (i == zero && n == zero)
-
-type family CheckIndex (i :: Nat) (n :: Nat) :: Bool where
-  CheckIndex i n =
-    If ((0 <=? i) && (i + 1 <=? n)) 'True (L.TypeError ('Text "index outside range"))
-
--- | /checkIndexes is n/ check if /is/ are valid indexes of a list of length /n/
-checkIndexes :: [Int] -> Int -> Bool
-checkIndexes is n = all (`checkIndex` n) is
-
-type family CheckIndexes (i :: [Nat]) (n :: Nat) :: Bool where
-  CheckIndexes '[] _ = 'True
-  CheckIndexes (i : is) n = CheckIndex i n && CheckIndexes is n
-
--- | dimension i is the i'th dimension of a Shape
+-- | dimension i xs is the i'th element of xs
 --
 -- >>> dimension [] 0
 -- 0
 -- >>> dimension [2,3,4] 1
 -- 3
-dimension :: [Int] -> Int -> Int
-dimension [] _ = 0
-dimension (s : _) 0 = s
-dimension (_ : s) n = dimension s (n - 1)
+dimension :: Int -> [Int] -> Int
+dimension _ [] = 0
+dimension 0 (s : _) = s
+dimension n (_ : s) = dimension (n - 1) s
 
 type family Dimension (s :: [Nat]) (i :: Nat) :: Nat where
   Dimension (s : _) 0 = s
@@ -358,7 +306,7 @@ type AddIndex i d s = Take i s ++ (d : Drop i s)
 -- >>> modifyIndex 0 (+1) [0,1,2]
 -- [1,1,2]
 modifyIndex :: Int -> (Int -> Int) -> [Int] -> [Int]
-modifyIndex d f xs = take d xs <> maybe [] (pure . f) (xs List.!? d) <> drop (d + 1) xs
+modifyIndex d f xs = take d xs <> (pure . f) (xs List.!! d) <> drop (d + 1) xs
 
 -- | replace an index at a specific dimension.
 --
@@ -385,7 +333,7 @@ type family ReverseGo (a :: [k]) (b :: [k]) :: [k] where
 -- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
 -- [1,1,2]
 rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
-rotateIndex rs s xs = foldr (\(d, r) acc -> modifyIndex d (\x -> maybe x ((x + r) `mod`) (s List.!? d)) acc) xs rs
+rotateIndex rs s xs = foldr (\(d, r) acc -> modifyIndex d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
 
 -- | Convert a list of position that reference deletions according to a final shape to one that references deletions relative to an initial shape.
 --
@@ -470,7 +418,7 @@ type family AddIndexesGo (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
 -- [1,5,4]
 --
 -- >>> replaceIndexes [0] [3] []
--- []
+-- [3]
 replaceIndexes :: [Int] -> [Int] -> [Int] -> [Int]
 replaceIndexes ds xs ns = foldl' (\ns' (d, x) -> replaceIndex d x ns') ns (zip ds xs)
 
@@ -489,7 +437,7 @@ modifyIndexes ds fs ns = foldl' (\ns' (d, f) -> modifyIndex d f ns') ns (zip ds 
 -- []
 takeIndexes :: [Int] -> [Int] -> [Int]
 takeIndexes _ [] = []
-takeIndexes i s = fromMaybe 0 . (s List.!?) <$> i
+takeIndexes i s = (s List.!!) <$> i
 
 type family TakeIndexes (i :: [Nat]) (s :: [Nat]) where
   TakeIndexes '[] _ = '[]
@@ -519,6 +467,28 @@ exclude r xs = deleteIndexes xs [0 .. (r - 1)]
 type family Exclude (r :: Nat) (i :: [Nat]) where
   Exclude r i = DropIndexes (EnumerateGo r) i
 
+-- | /checkIndex i n/ checks if /i/ is a valid index of a list of length /n/
+--
+-- >>> checkIndex 0 0
+-- True
+-- >>> checkIndex 3 2
+-- False
+checkIndex :: Int -> Int -> Bool
+checkIndex i n = (zero <= i && i + one <= n) || (i == zero && n == zero)
+
+type family CheckIndex (i :: Nat) (n :: Nat) :: Bool where
+  CheckIndex i n =
+    If ((0 <=? i) && (i + 1 <=? n)) 'True (L.TypeError ('Text "index outside range"))
+
+-- | /checkIndexes is n/ check if /is/ are valid indexes of a list of length /n/
+checkIndexes :: [Int] -> Int -> Bool
+checkIndexes is n = all (`checkIndex` n) is
+
+type family CheckIndexes (i :: [Nat]) (n :: Nat) :: Bool where
+  CheckIndexes '[] _ = 'True
+  CheckIndexes (i : is) n = CheckIndex i n && CheckIndexes is n
+
+
 -- | concatenate two arrays at dimension i
 --
 -- Bespoke logic for scalars.
@@ -535,7 +505,7 @@ concatenate :: Int -> [Int] -> [Int] -> [Int]
 concatenate _ [] [] = [2]
 concatenate _ [] [x] = [x + 1]
 concatenate _ [x] [] = [x + 1]
-concatenate i s0 s1 = take i s0 ++ (dimension s0 i + dimension s1 i : drop (i + 1) s0)
+concatenate i s0 s1 = take i s0 ++ (dimension i s0 + dimension i s1 : drop (i + 1) s0)
 
 type Concatenate i s0 s1 = Take i s0 ++ (Dimension s0 i + Dimension s1 i : Drop (i + 1) s0)
 
@@ -553,11 +523,11 @@ type Insert d s = Take d s ++ (Dimension s d + 1 : Drop (d + 1) s)
 
 -- | /incAt d s/ increments the index at /d/ of shape /s/ by one.
 incAt :: Int -> [Int] -> [Int]
-incAt d s = take d s ++ (dimension s d + 1 : drop (d + 1) s)
+incAt d s = take d s ++ (dimension d s + 1 : drop (d + 1) s)
 
 -- | /decAt d s/ decrements the index at /d/ of shape /s/ by one.
 decAt :: Int -> [Int] -> [Int]
-decAt d s = take d s ++ (dimension s d - 1 : drop (d + 1) s)
+decAt d s = take d s ++ (dimension d s - 1 : drop (d + 1) s)
 
 -- | /reorder s i/ reorders the dimensions of shape /s/ according to a list of positions /i/
 --
@@ -566,7 +536,7 @@ decAt d s = take d s ++ (dimension s d - 1 : drop (d + 1) s)
 reorder :: [Int] -> [Int] -> [Int]
 reorder [] _ = []
 reorder _ [] = []
-reorder s (d : ds) = dimension s d : reorder s ds
+reorder s (d : ds) = dimension d s : reorder s ds
 
 type family Reorder (s :: [Nat]) (ds :: [Nat]) :: [Nat] where
   Reorder '[] _ = '[]

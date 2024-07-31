@@ -132,28 +132,6 @@ pretty a
 
 ** backpermute
 
-
-| function      | f                                          | g                                                           |
-|---------------+--------------------------------------------+-------------------------------------------------------------|
-| takeD d t     | modifyIndex d . min t                      | id                                                          |
-| dropD d t     | \s -> modifyIndex d (const ((s !! d) - t)) | (+t)                                                        |
-| reshape s     | id                                         | shapen (shape a) .flatten                                   |
-| rotates rs    | id                                         | S.rotateIndex rs                                            |
-| diag          | minRank                                    | replicate (rank a) . head                                   |
-| undiag        | replicate r . head                         | bool (const zero) id . S.isDiag                             |
-| selectD d x   | S.deleteIndex d                            | S.addIndex d x                                              |
-| extracts ds   | S.takeIndexes ds                           | S.addIndexes ds                                             |
-| joins ds      | S.addIndexes ds (index a 0)                | index (index a (S.takeIndexes s ds)) (S.deleteIndexes s ds) |
-| expand f      | (<>)                                       | (List.take (rank a), List.drop (rank a))                    |
-| slice pss     | (S.ranks pss)                              | List.zipWith (!!) pss                                       |
-| reorder ds    | S.reorder ds                               | S.addIndexes [] ds                                          |
-| reverses ds   | id                                         | S.reverseIndex ds                                           |
-| inflates ds n | S.addIndexes ds n                          | S.deleteIndexes ds                                          |
-| transpose     | List.reverse                               | List.reverse                                                |
-|               |                                            |                                                             |
-
-
-
 #+begin_src haskell-ng :results output
 import qualified Data.List as List
 x = iota [2,3]
@@ -557,7 +535,6 @@ D.drops [1,0] m
 #+begin_src haskell-ng :results output
 S.shapenL [] 20
 S.flattenL [] []
-S.checkIndex 0 0
 S.deleteIndex [] 2
 S.replaceIndex 0 1 []
 S.modifyIndex 0 (+1) []
