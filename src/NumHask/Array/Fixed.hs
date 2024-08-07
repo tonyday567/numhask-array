@@ -1,25 +1,38 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- | Arrays with a fixed shape (known shape at compile time).
 module NumHask.Array.Fixed
-  ( -- $usage
+  ( -- * Usage
+    -- $usage
+
+    -- * Fixed Arrays
     Array (..),
-    pattern Array,
-    toVector,
+    FromVector (..),
+    unsafeArray,
+    validate,
+    safeArray,
+    array,
+    unsafeModifyShape,
+    unsafeModifyVector,
 
     -- * shape
     shape,
     shapeA,
     rank,
     size,
+
+    -- * Creation
+    range,
 
     -- * Conversion
     with,
@@ -80,7 +93,6 @@ import Data.Functor.Classes
 import Data.Functor.Rep
 import Data.Proxy
 import Data.Vector qualified as V
-import GHC.Exts (IsList (..))
 import GHC.TypeLits
 import NumHask.Array.Dynamic qualified as D
 import NumHask.Array.Shape hiding (rank, size)
@@ -92,42 +104,62 @@ import Prettyprinter hiding (dot)
 --
 -- >>> :m -Prelude
 -- >>> :set -XDataKinds
--- >>> :set -XOverloadedLists
--- >>> :set -XTypeFamilies
--- >>> :set -XFlexibleContexts
 -- >>> :set -XRebindableSyntax
--- >>> import NumHask.Prelude
+-- >>> import NumHask.Prelude hiding (empty, diff, take, drop, zipWith)
+-- >>> import NumHask.Array.Fixed as F
+-- >>> import NumHask.Array.Shape qualified as S
 -- >>> import GHC.TypeLits (Nat)
 -- >>> import Data.Proxy
--- >>> import Prettyprinter hiding (dot)
+-- >>> import Prettyprinter hiding (dot,fill)
 -- >>> import Data.Functor.Rep
--- >>> let s = [1] :: Array ('[]::[Nat]) Int -- scalar
--- >>> let v = [1,2,3] :: Array '[3] Int       -- vector
--- >>> let t = [0..3] :: Array '[2,2] Int     -- square matrix
--- >>> let m = [0..11] :: Array '[3,4] Int     -- matrix
--- >>> let a = [1..24] :: Array '[2,3,4] Int
+--
+-- >>> s = 1 :: Array '[] Int
+-- >>> s
+-- [1]
+-- >>> shape s
+-- []
+-- >>> pretty s
+-- 1
+-- >>> let v = range @'[3]
+-- >>> pretty v
+-- [0,1,2]
+-- >>> a = range @[2,3,4]
+-- >>> a
+-- [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]
+-- >>> pretty a
+-- [[[0,1,2,3],
+--   [4,5,6,7],
+--   [8,9,10,11]],
+--  [[12,13,14,15],
+--   [16,17,18,19],
+--   [20,21,22,23]]]
+-- >>> toDynamic a
+-- UnsafeArray [2,3,4] [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]
 
 -- $usage
 --
--- >>> :set -XDataKinds
--- >>> :set -XOverloadedLists
--- >>> :set -XTypeFamilies
--- >>> :set -XFlexibleContexts
--- >>> :set -XRebindableSyntax
--- >>> import NumHask.Prelude
--- >>> import NumHask.Array.Fixed
--- >>> import GHC.TypeLits (Nat)
--- >>> let s = [1] :: Array ('[]::[Nat]) Int -- scalar
--- >>> let v = [1,2,3] :: Array '[3] Int       -- vector
--- >>> let m = [0..11] :: Array '[3,4] Int     -- matrix
--- >>> let a = [1..24] :: Array '[2,3,4] Int
+-- >>> import NumHask.Array.Fixed as F
+-- >>> import NumHask.Array.Dynamic qualified as D
+-- >>> import NumHask.Array.Shape qualified as S
+-- >>> import Prettyprinter (pretty)
+-- >>> a = range @[2,3,4]
+-- >>> a
+-- [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]
+-- >>> pretty a
+-- [[[0,1,2,3],
+--   [4,5,6,7],
+--   [8,9,10,11]],
+--  [[12,13,14,15],
+--   [16,17,18,19],
+--   [20,21,22,23]]]
+-- >>> toDynamic a
+-- UnsafeArray [2,3,4] [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]
 
--- | a multidimensional array with a type-level shape
+-- | A multidimensional array with a type-level shape
 --
--- >>> :set -XDataKinds
--- >>> [1..24] :: Array '[2,3,4] Int
+-- >>> array [1..24] :: Array '[2,3,4] Int
 -- [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24]
--- >>> pretty ([1..24] :: Array '[2,3,4] Int)
+-- >>> pretty (array [1..24] :: Array '[2,3,4] Int)
 -- [[[1,2,3,4],
 --   [5,6,7,8],
 --   [9,10,11,12]],
@@ -135,19 +167,25 @@ import Prettyprinter hiding (dot)
 --   [17,18,19,20],
 --   [21,22,23,24]]]
 --
--- >>> [1,2,3] :: Array '[2,2] Int
--- *** Exception: NumHaskException {errorMessage = "shape mismatch"}
+-- >>> array [1,2,3] :: Array '[2,2] Int
+-- *** Exception: NumHaskException {errorMessage = "ShapeMismatch"}
+--
+-- In many spots, [TypeApplication](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/type_applications.html) can be cleaner.
+--
+-- >>> array @[2,3] @[Int] [1..6]
+-- [1,2,3,4,5,6]
+--
+-- >>> index a [1,2,3]
+-- 23
+--
+-- >>> tabulate (S.flatten (shape a)) == a
+-- True
 type role Array nominal representational
 
 newtype Array (s :: [Nat]) a where
-  UnsafeArray :: V.Vector a -> Array s a
+  Array :: V.Vector a -> Array s a
   deriving stock (Functor, Foldable, Generic, Traversable)
   deriving newtype (Eq, Eq1, Ord, Ord1, Show, Show1)
-
-pattern Array :: V.Vector a -> Array s a
-pattern Array {toVector} <- UnsafeArray toVector
-
-{-# COMPLETE Array #-}
 
 instance (HasShape s, Show a) => Pretty (Array s a) where
   pretty = pretty . toDynamic
@@ -167,7 +205,7 @@ instance
   type Rep (Array s) = [Int]
 
   tabulate f =
-    UnsafeArray . V.generate (S.size s) $ (f . shapen s)
+    Array . V.generate (S.size s) $ (f . shapen s)
     where
       s = shapeOf @s
   {-# INLINE tabulate #-}
@@ -235,25 +273,88 @@ instance (FromInteger a) => FromInteger (Array ('[] :: [Nat]) a) where
 instance (FromRational a) => FromRational (Array ('[] :: [Nat]) a) where
   fromRational x = toScalar (fromRational x)
 
-instance
-  (HasShape s) =>
-  IsList (Array s a)
+-- | Conversion to and from a `V.Vector`
+--
+-- Note that conversion of an 'Array' to a vector drops shape information, so that:
+--
+-- > vectorAs . asVector == id
+-- > asVector . vectorAs == flat
+--
+-- >>> asVector (array [0..5] :: Array [2,3] Int)
+-- [0,1,2,3,4,5]
+--
+-- >>> import Data.Vector qualified as V
+-- >>> vectorAs (V.fromList [0..5]) :: Array [2,3] Int
+-- [0,1,2,3,4,5]
+class FromVector t a | t -> a where
+  asVector :: t -> V.Vector a
+  vectorAs :: V.Vector a -> t
+
+instance FromVector (V.Vector a) a where
+  asVector = id
+  vectorAs = id
+
+instance FromVector [a] a where
+  asVector = V.fromList
+  vectorAs = V.toList
+
+instance FromVector (Array s a) a where
+  asVector (Array v) = v
+  vectorAs v = Array v
+
+-- | Constructor of an array from a shape and a value without any shape validation.
+--
+-- >>> unsafeArray [0..4] :: Array [2,3] Int
+-- [0,1,2,3,4]
+unsafeArray :: (HasShape s, FromVector t a) => t -> Array s a
+unsafeArray (asVector -> v) = Array v
+
+-- | Validate the size and shape of an array.
+--
+-- >>> validate (unsafeArray [0..4] :: Array [2,3] Int)
+-- False
+validate :: (HasShape s) => Array s a -> Bool
+validate a = size a == V.length (asVector a)
+
+-- | Construct an Array, checking shape.
+--
+-- >>> (safeArray [0..23] :: Maybe (Array [2,3,4] Int)) == Just a
+-- True
+safeArray :: (HasShape s, FromVector t a) => t -> Maybe (Array s a)
+safeArray v =
+  bool Nothing (Just a) (validate a)
   where
-  type Item (Array s a) = a
+    a = unsafeArray v
 
-  fromList l =
-    bool
-      (throw (NumHaskException "shape mismatch"))
-      (UnsafeArray $ V.fromList l)
-      ((length l == 1 && null ds) || (length l == S.size ds))
-    where
-      ds = shapeOf @s
+-- | Construct an Array, checking shape.
+--
+-- >>> array [0..22] :: Array [2,3,4] Int
+-- *** Exception: NumHaskException {errorMessage = "ShapeMismatch"}
+array :: (HasShape s, FromVector t a) => t -> Array s a
+array v =
+  fromMaybe (throw (NumHaskException "ShapeMismatch")) (safeArray v)
 
-  toList (Array v) = V.toList v
+-- | Unsafely modify an array shape.
+--
+-- >>> pretty (unsafeModifyShape (array [0..5] :: Array [2,3] Int) :: Array [3,2] Int)
+-- [[0,1],
+--  [2,3],
+--  [4,5]]
+unsafeModifyShape :: (HasShape s, HasShape s') => Array s a -> Array s' a
+unsafeModifyShape a = unsafeArray (asVector a)
+
+-- | Unsafely modify an array vector.
+--
+-- >>> import Data.Vector qualified as V
+-- >>> pretty (unsafeModifyVector (V.map (+1)) (array [0..5] :: Array [2,3] Int))
+-- [[1,2,3],
+--  [4,5,6]]
+unsafeModifyVector :: (HasShape s) => (FromVector u a) => (FromVector v b) => (u -> v) -> Array s a -> Array s b
+unsafeModifyVector f a = unsafeArray (asVector (f (vectorAs (asVector a))))
 
 -- | Get shape of an Array as a value.
 --
--- >>> shape a
+-- > shape a
 -- [2,3,4]
 shape :: forall a s. (HasShape s) => Array s a -> [Int]
 shape _ = shapeOf @s
@@ -261,15 +362,15 @@ shape _ = shapeOf @s
 
 -- | Get shape of an Array as an Array.
 --
--- >>> shape a
+-- > shape a
 -- [2,3,4]
 shapeA :: forall a s n. (HasShape s, KnownNat n) => Array s a -> Array '[n] Int
-shapeA a = fromList (shape a)
+shapeA a = Array (asVector $ shape a)
 {-# INLINE shapeA #-}
 
 -- | Get rank of an Array as a value.
 --
--- >>> rank a
+-- > rank a
 -- 3
 rank :: forall a s. (HasShape s) => Array s a -> Int
 rank = S.rank . shape
@@ -277,7 +378,7 @@ rank = S.rank . shape
 
 -- | Get size of an Array as a value.
 --
--- >>> size a
+-- > size a
 -- 24
 size :: forall a s. (HasShape s) => Array s a -> Int
 size = S.size . shape
@@ -285,13 +386,13 @@ size = S.size . shape
 
 -- | convert to a dynamic array with shape at the value level.
 toDynamic :: (HasShape s) => Array s a -> D.Array a
-toDynamic a = D.array (shape a) (toList a)
+toDynamic a = D.array (shape a) (asVector a)
 
 -- | Use a dynamic array in a fixed context.
 --
--- >>> import qualified NumHask.Array.Dynamic as D
--- >>> d = D.array ([2,3,4]::[Int]) ([1..24] :: [Int]) :: D.Array Int
--- >>> pretty $ with d (indexes (Proxy :: Proxy '[0,1]) [1,1] :: Array '[2,3,4] Int -> Array '[4] Int)
+-- > import qualified NumHask.Array.Dynamic as D
+-- > d = D.array ([2,3,4]::[Int]) ([1..24] :: [Int]) :: D.Array Int
+-- > pretty $ with d (indexes (Proxy :: Proxy '[0,1]) [1,1] :: Array '[2,3,4] Int -> Array '[4] Int)
 -- [17,18,19,20]
 with ::
   forall a r s.
@@ -299,11 +400,19 @@ with ::
   D.Array a ->
   (Array s a -> r) ->
   r
-with (D.UnsafeArray _ v) f = f (UnsafeArray v)
+with (D.UnsafeArray _ v) f = f (Array v)
+
+-- | A flat enumeration.
+--
+-- >>> pretty (range :: Array [2,3] Int)
+-- [[0,1,2],
+--  [3,4,5]]
+range :: forall s. (HasShape s) => Array s Int
+range = tabulate (S.flatten (shapeOf @s))
 
 -- | Takes the top-most elements according to the new dimension.
 --
--- >>> pretty (takes a :: Array '[2,2,3] Int)
+-- > pretty (takes a :: Array '[2,2,3] Int)
 -- [[[1,2,3],
 --   [5,6,7]],
 --  [[13,14,15],
@@ -319,7 +428,7 @@ takes a = tabulate $ \s -> index a s
 
 -- | Reshape an array (with the same number of elements).
 --
--- >>> pretty (reshape a :: Array '[4,3,2] Int)
+-- > pretty (reshape a :: Array '[4,3,2] Int)
 -- [[[1,2],
 --   [3,4],
 --   [5,6]],
@@ -347,14 +456,14 @@ reshape a = tabulate (index a . shapen s . flatten s')
 
 -- | Reverse indices eg transposes the element A/ijk/ to A/kji/.
 --
--- >>> index (transpose a) [1,0,0] == index a [0,0,1]
+-- > index (transpose a) [1,0,0] == index a [0,0,1]
 -- True
 transpose :: forall a s. (HasShape s, HasShape (Reverse s)) => Array s a -> Array (Reverse s) a
 transpose a = tabulate (index a . reverse)
 
 -- | Indices of an Array.
 --
--- >>> pretty (indices :: Array '[3,3] [Int])
+-- > pretty (indices :: Array '[3,3] [Int])
 -- [[[0,0],[0,1],[0,2]],
 --  [[1,0],[1,1],[1,2]],
 --  [[2,0],[2,1],[2,2]]]
@@ -363,7 +472,7 @@ indices = tabulate id
 
 -- | The identity array.
 --
--- >>> pretty (ident :: Array '[3,2] Int)
+-- > pretty (ident :: Array '[3,2] Int)
 -- [[1,0],
 --  [0,1],
 --  [0,0]]
@@ -372,10 +481,10 @@ ident = tabulate (bool zero one . isDiag)
 
 -- | An array of sequential Ints
 --
--- >>> pretty (sequent :: Array '[3] Int)
+-- > pretty (sequent :: Array '[3] Int)
 -- [0,1,2]
 --
--- >>> pretty (sequent :: Array '[3,3] Int)
+-- > pretty (sequent :: Array '[3,3] Int)
 -- [[0,0,0],
 --  [0,1,0],
 --  [0,0,2]]
@@ -388,7 +497,7 @@ sequent = tabulate go
 
 -- | Extract the diagonal of an array.
 --
--- >>> pretty (diag (ident :: Array '[3,2] Int))
+-- > pretty (diag (ident :: Array '[3,2] Int))
 -- [1,1]
 diag ::
   forall a s.
@@ -405,7 +514,7 @@ diag a = tabulate go
 
 -- | Expand the array to form a diagonal array
 --
--- >>> pretty (undiag ([1,1] :: Array '[2] Int))
+-- > pretty (undiag ([1,1] :: Array '[2] Int))
 -- [[1,0],
 --  [0,1]]
 undiag ::
@@ -423,7 +532,7 @@ undiag a = tabulate go
 
 -- | Create an array composed of a single value.
 --
--- >>> pretty (singleton one :: Array '[3,2] Int)
+-- > pretty (singleton one :: Array '[3,2] Int)
 -- [[1,1],
 --  [1,1],
 --  [1,1]]
@@ -432,11 +541,11 @@ singleton a = tabulate (const a)
 
 -- | Select an array along dimensions.
 --
--- >>> let s = indexes (Proxy :: Proxy '[0,1]) [1,1] a
--- >>> :t s
+-- > let s = indexes (Proxy :: Proxy '[0,1]) [1,1] a
+-- > :t s
 -- s :: Array '[4] Int
 --
--- >>> pretty $ s
+-- > pretty $ s
 -- [17,18,19,20]
 indexes ::
   forall ds s s' a.
@@ -456,11 +565,11 @@ indexes _ i a = tabulate go
 
 -- | Select an index /except/ along specified dimensions.
 --
--- >>> let s = indexesExcept (Proxy :: Proxy '[2]) [1,1] a
--- >>> :t s
+-- > let s = indexesExcept (Proxy :: Proxy '[2]) [1,1] a
+-- > :t s
 -- s :: Array '[4] Int
 --
--- >>> pretty $ s
+-- > pretty $ s
 -- [17,18,19,20]
 indexesExcept ::
   forall ds s s' a.
@@ -480,7 +589,7 @@ indexesExcept _ i a = tabulate go
 
 -- | Fold along specified dimensions.
 --
--- >>> pretty $ folds sum (Proxy :: Proxy '[1]) a
+-- > pretty $ folds sum (Proxy :: Proxy '[1]) a
 -- [68,100,132]
 folds ::
   forall ds st si so a b.
@@ -501,8 +610,8 @@ folds f d a = tabulate go
 
 -- | Extracts dimensions to an outer layer.
 --
--- >>> let e = extracts (Proxy :: Proxy '[1,2]) a
--- >>> :t e
+-- > let e = extracts (Proxy :: Proxy '[1,2]) a
+-- > :t e
 -- e :: Array [3, 4] (Array '[2] Int)
 extracts ::
   forall ds st si so a.
@@ -522,8 +631,8 @@ extracts d a = tabulate go
 
 -- | Extracts /except/ dimensions to an outer layer.
 --
--- >>> let e = extractsExcept (Proxy :: Proxy '[1,2]) a
--- >>> :t e
+-- > let e = extractsExcept (Proxy :: Proxy '[1,2]) a
+-- > :t e
 -- e :: Array '[2] (Array [3, 4] Int)
 extractsExcept ::
   forall ds st si so a.
@@ -543,9 +652,9 @@ extractsExcept d a = tabulate go
 
 -- | Join inner and outer dimension layers.
 --
--- >>> let e = extracts (Proxy :: Proxy '[1,0]) a
--- >>> let j = joins (Proxy :: Proxy '[1,0]) e
--- >>> a == j
+-- > let e = extracts (Proxy :: Proxy '[1,0]) a
+-- > let j = joins (Proxy :: Proxy '[1,0]) e
+-- > a == j
 -- True
 joins ::
   forall ds si st so a.
@@ -565,7 +674,7 @@ joins _ a = tabulate go
 
 -- | Maps a function along specified dimensions.
 --
--- >>> :t maps (transpose) (Proxy :: Proxy '[1]) a
+-- > :t maps (transpose) (Proxy :: Proxy '[1]) a
 -- maps (transpose) (Proxy :: Proxy '[1]) a :: Array [4, 3, 2] Int
 maps ::
   forall ds st st' si si' so a b.
@@ -588,7 +697,7 @@ maps f d a = joins d (fmapRep f (extracts d a))
 
 -- | Concatenate along a dimension.
 --
--- >>> :t concatenate (Proxy :: Proxy 1) a a
+-- > :t concatenate (Proxy :: Proxy 1) a a
 -- concatenate (Proxy :: Proxy 1) a a :: Array [2, 6, 4] Int
 concatenate ::
   forall a s0 s1 d s.
@@ -622,7 +731,7 @@ concatenate _ s0 s1 = tabulate go
 
 -- | Insert along a dimension at a position.
 --
--- >>> pretty (insert (Proxy :: Proxy 2) (Proxy :: Proxy 0) a ([100..105]))
+-- > pretty (insert (Proxy :: Proxy 2) (Proxy :: Proxy 0) a ([100..105]))
 -- [[[100,1,2,3,4],
 --   [101,5,6,7,8],
 --   [102,9,10,11,12]],
@@ -655,7 +764,7 @@ insert _ _ a b = tabulate go
 
 -- | Append along a dimension at the end.
 --
--- >>>  :t append (Proxy :: Proxy 0) a
+-- >  :t append (Proxy :: Proxy 0) a
 -- append (Proxy :: Proxy 0) a
 --   :: Array [3, 4] Int -> Array [3, 3, 4] Int
 append ::
@@ -676,8 +785,8 @@ append d = insert d (Proxy :: Proxy (IndexOf d s - 1))
 
 -- | Change the order of dimensions.
 --
--- >>> let r = reorder (Proxy :: Proxy '[2,0,1]) a
--- >>> :t r
+-- > let r = reorder (Proxy :: Proxy '[2,0,1]) a
+-- > :t r
 -- r :: Array [4, 2, 3] Int
 reorder ::
   forall a ds s.
@@ -723,15 +832,15 @@ rotates rs a = tabulate (index a . rotateIndex rs (shapeOf @s))
 --
 -- ... the tensor product can be extended to other categories of mathematical objects in addition to vector spaces, such as to matrices, tensors, algebras, topological vector spaces, and modules. In each such case the tensor product is characterized by a similar universal property: it is the freest bilinear operation. The general concept of a "tensor product" is captured by monoidal categories; that is, the class of all things that have a tensor product is a monoidal category.
 --
--- >>> pretty $ expand (*) v v
+-- > pretty $ expand (*) v v
 -- [[1,2,3],
 --  [2,4,6],
 --  [3,6,9]]
 --
 -- Alternatively, expand can be understood as representing the permutation of element pairs of two arrays, so like the Applicative List instance.
 --
--- >>> i2 = indices :: Array '[2,2] [Int]
--- >>> pretty $ expand (,) i2 i2
+-- > i2 = indices :: Array '[2,2] [Int]
+-- > pretty $ expand (,) i2 i2
 -- [[[[([0,0],[0,0]),([0,0],[0,1])],
 --    [([0,0],[1,0]),([0,0],[1,1])]],
 --   [[([0,1],[0,0]),([0,1],[0,1])],
@@ -756,12 +865,12 @@ expand f a b = tabulate (\i -> f (index a (take r i)) (index b (drop r i)))
 
 -- | Like expand, but permutes the first array first, rather than the second.
 --
--- >>> pretty $ expand (,) v (v |+ 3)
+-- > pretty $ expand (,) v (v |+ 3)
 -- [[(1,4),(1,5),(1,6)],
 --  [(2,4),(2,5),(2,6)],
 --  [(3,4),(3,5),(3,6)]]
 --
--- >>> pretty $ expandr (,) v (v |+ 3)
+-- > pretty $ expandr (,) v (v |+ 3)
 -- [[(1,4),(2,4),(3,4)],
 --  [(1,5),(2,5),(3,5)],
 --  [(1,6),(2,6),(3,6)]]
@@ -785,7 +894,7 @@ expandr f a b = tabulate (\i -> f (index a (drop r i)) (index b (take r i)))
 --
 -- > expand f a b == apply (fmap f a) b
 --
--- >>> pretty $ apply ((*) <$> v) v
+-- > pretty $ apply ((*) <$> v) v
 -- [[1,2,3],
 --  [2,4,6],
 --  [3,6,9]]
@@ -799,8 +908,8 @@ expandr f a b = tabulate (\i -> f (index a (drop r i)) (index b (take r i)))
 -- > :t (<*>)
 -- > (<*>) :: Applicative f => f (a -> b) -> f a -> f b
 --
--- >>> let b = [1..6] :: Array '[2,3] Int
--- >>> pretty $ contract sum (Proxy :: Proxy '[1,2]) (apply (fmap (*) b) (transpose b))
+-- > let b = [1..6] :: Array '[2,3] Int
+-- > pretty $ contract sum (Proxy :: Proxy '[1,2]) (apply (fmap (*) b) (transpose b))
 -- [[14,32],
 --  [32,77]]
 apply ::
@@ -820,8 +929,8 @@ apply f a = tabulate (\i -> index f (take r i) (index a (drop r i)))
 --
 -- This generalises a tensor contraction by allowing the number of contracting diagonals to be other than 2, and allowing a binary operator other than multiplication.
 --
--- >>> let b = [1..6] :: Array '[2,3] Int
--- >>> pretty $ contract sum (Proxy :: Proxy '[1,2]) (expand (*) b (transpose b))
+-- > let b = [1..6] :: Array '[2,3] Int
+-- > pretty $ contract sum (Proxy :: Proxy '[1,2]) (expand (*) b (transpose b))
 -- [[14,32],
 --  [32,77]]
 contract ::
@@ -845,58 +954,58 @@ contract f xs a = f . diag <$> extractsExcept xs a
 --
 -- matrix multiplication
 --
--- >>> let b = [1..6] :: Array '[2,3] Int
--- >>> pretty $ dot sum (*) b (transpose b)
+-- > let b = [1..6] :: Array '[2,3] Int
+-- > pretty $ dot sum (*) b (transpose b)
 -- [[14,32],
 --  [32,77]]
 --
 -- inner product
 --
--- >>> let v = [1..3] :: Array '[3] Int
--- >>> :t dot sum (*) v v
+-- > let v = [1..3] :: Array '[3] Int
+-- > :t dot sum (*) v v
 -- dot sum (*) v v :: Array '[] Int
 --
--- >>> pretty $ dot sum (*) v v
+-- > pretty $ dot sum (*) v v
 -- 14
 --
 -- matrix-vector multiplication
 -- (Note how the vector doesn't need to be converted to a row or column vector)
 --
--- >>> pretty $ dot sum (*) v b
+-- > pretty $ dot sum (*) v b
 -- [9,12,15]
 --
--- >>> pretty $ dot sum (*) b v
+-- > pretty $ dot sum (*) b v
 -- [14,32]
 --
 -- Array elements don't have to be numbers:
 --
--- >>> x1 = (show <$> [1..4]) :: Array '[2,2] String
--- >>> x2 = (show <$> [5..8]) :: Array '[2,2] String
--- >>> pretty x1
+-- > x1 = (show <$> [1..4]) :: Array '[2,2] String
+-- > x2 = (show <$> [5..8]) :: Array '[2,2] String
+-- > pretty x1
 -- [["1","2"],
 --  ["3","4"]]
 --
--- >>> pretty x2
+-- > pretty x2
 -- [["5","6"],
 --  ["7","8"]]
 --
--- >>> import Data.List (intercalate)
--- >>> pretty $ dot (intercalate "+" . toList) (\a b -> a <> "*" <> b) x1 x2
+-- > import Data.List (intercalate)
+-- > pretty $ dot (intercalate "+" . toList) (\a b -> a <> "*" <> b) x1 x2
 -- [["1*5+2*7","1*6+2*8"],
 --  ["3*5+4*7","3*6+4*8"]]
 --
 -- 'dot' allows operation on mis-shaped matrices. The algorithm ignores excess positions within the contracting dimension(s):
 --
--- >>> let m23 = [1..6] :: Array '[2,3] Int
--- >>> let m12 = [1,2] :: Array '[1,2] Int
--- >>> shape $ dot sum (*) m23 m12
+-- > let m23 = [1..6] :: Array '[2,3] Int
+-- > let m12 = [1,2] :: Array '[1,2] Int
+-- > shape $ dot sum (*) m23 m12
 -- [2,2]
 --
 -- Find instances of a vector in a matrix
 --
--- >>> let cs = fromList ("abacbaab" :: [Char]) :: Array '[4,2] Char
--- >>> let v = fromList ("ab" :: [Char]) :: Vector 2 Char
--- >>> dot (all id) (==) cs v
+-- > let cs = fromList ("abacbaab" :: [Char]) :: Array '[4,2] Char
+-- > let v = fromList ("ab" :: [Char]) :: Vector 2 Char
+-- > dot (all id) (==) cs v
 -- [True,False,False,True]
 dot ::
   forall a b c d sa sb s' ss se.
@@ -924,26 +1033,26 @@ dot f g a b = contract f (Proxy :: Proxy '[Rank sa - 1, Rank sa]) (expand g a b)
 --
 -- matrix multiplication
 --
--- >>> let b = [1..6] :: Array '[2,3] Int
--- >>> pretty $ mult b (transpose b)
+-- > let b = [1..6] :: Array '[2,3] Int
+-- > pretty $ mult b (transpose b)
 -- [[14,32],
 --  [32,77]]
 --
 -- inner product
 --
--- >>> let v = [1..3] :: Array '[3] Int
--- >>> :t mult v v
+-- > let v = [1..3] :: Array '[3] Int
+-- > :t mult v v
 -- mult v v :: Array '[] Int
 --
--- >>> pretty $ mult v v
+-- > pretty $ mult v v
 -- 14
 --
 -- matrix-vector multiplication
 --
--- >>> pretty $ mult v b
+-- > pretty $ mult v b
 -- [9,12,15]
 --
--- >>> pretty $ mult b v
+-- > pretty $ mult b v
 -- [14,32]
 mult ::
   forall a sa sb s' ss se.
@@ -969,21 +1078,21 @@ mult = dot sum (*)
 
 -- | Select elements along positions in every dimension.
 --
--- >>> let s = slice (Proxy :: Proxy '[[0,1],[0,2],[1,2]]) a
--- >>> :t s
+-- > let s = slice (Proxy :: Proxy '[[0,1],[0,2],[1,2]]) a
+-- > :t s
 -- s :: Array [2, 2, 2] Int
 --
--- >>> pretty $ s
+-- > pretty $ s
 -- [[[2,3],
 --   [10,11]],
 --  [[14,15],
 --   [22,23]]]
 --
--- >>> let s = squeeze $ slice (Proxy :: Proxy '[ '[0],'[0],'[0]]) a
--- >>> :t s
+-- > let s = squeeze $ slice (Proxy :: Proxy '[ '[0],'[0],'[0]]) a
+-- > :t s
 -- s :: Array '[] Int
 --
--- >>> pretty $ s
+-- > pretty $ s
 -- 1
 slice ::
   forall (pss :: [[Nat]]) s s' a.
@@ -1003,8 +1112,8 @@ slice pss a = tabulate go
 
 -- | Remove single dimensions.
 --
--- >>> let a = [1..24] :: Array '[2,1,3,4,1] Int
--- >>> pretty $ a
+-- > let a = [1..24] :: Array '[2,1,3,4,1] Int
+-- > pretty $ a
 -- [[[[[1],
 --     [2],
 --     [3],
@@ -1029,7 +1138,7 @@ slice pss a = tabulate go
 --     [22],
 --     [23],
 --     [24]]]]]
--- >>> pretty $ squeeze a
+-- > pretty $ squeeze a
 -- [[[1,2,3,4],
 --   [5,6,7,8],
 --   [9,10,11,12]],
@@ -1037,32 +1146,32 @@ slice pss a = tabulate go
 --   [17,18,19,20],
 --   [21,22,23,24]]]
 --
--- >>> pretty $ squeeze ([1] :: Array '[1,1] Double)
+-- > pretty $ squeeze ([1] :: Array '[1,1] Double)
 -- 1.0
 squeeze ::
   forall s t a.
   (t ~ Squeeze s) =>
   Array s a ->
   Array t a
-squeeze (Array x) = UnsafeArray x
+squeeze (Array x) = Array x
 
 -- $scalar
 -- Scalar specialisations
 
 -- | Unwrapping scalars is probably a performance bottleneck.
 --
--- >>> let s = [3] :: Array ('[] :: [Nat]) Int
--- >>> fromScalar s
+-- > let s = [3] :: Array ('[] :: [Nat]) Int
+-- > fromScalar s
 -- 3
 fromScalar :: (HasShape ('[] :: [Nat])) => Array ('[] :: [Nat]) a -> a
 fromScalar a = index a ([] :: [Int])
 
 -- | Convert a number to a scalar.
 --
--- >>> :t toScalar 2
+-- > :t toScalar 2
 -- toScalar 2 :: FromInteger a => Array '[] a
 toScalar :: (HasShape ('[] :: [Nat])) => a -> Array ('[] :: [Nat]) a
-toScalar a = UnsafeArray (V.singleton a)
+toScalar a = Array (V.singleton a)
 
 -- | <https://en.wikipedia.org/wiki/Vector_(mathematics_and_physics) Wiki Vector>
 type Vector s a = Array '[s] a
@@ -1142,49 +1251,49 @@ chol a =
 
 -- | Extract specialised to a matrix.
 --
--- >>> pretty $ row 1 m
+-- > pretty $ row 1 m
 -- [4,5,6,7]
 row :: forall m n a. (KnownNat m, KnownNat n, HasShape '[m, n]) => Int -> Matrix m n a -> Vector n a
-row i (Array a) = UnsafeArray $ V.slice (i * n) n a
+row i (Array a) = Array $ V.slice (i * n) n a
   where
     n = fromIntegral $ natVal @n Proxy
 
 -- | Row extraction checked at type level.
 --
--- >>> pretty $ safeRow (Proxy :: Proxy 1) m
+-- > pretty $ safeRow (Proxy :: Proxy 1) m
 -- [4,5,6,7]
 --
--- >>> pretty $ safeRow (Proxy :: Proxy 3) m
+-- > pretty $ safeRow (Proxy :: Proxy 3) m
 -- ...
 -- ... index outside range
 -- ...
 safeRow :: forall m n a j. ('True ~ CheckIndex j m, KnownNat j, KnownNat m, KnownNat n, HasShape '[m, n]) => Proxy j -> Matrix m n a -> Vector n a
-safeRow _j (Array a) = UnsafeArray $ V.slice (j * n) n a
+safeRow _j (Array a) = Array $ V.slice (j * n) n a
   where
     n = fromIntegral $ natVal @n Proxy
     j = fromIntegral $ natVal @j Proxy
 
 -- | Extract specialised to a matrix.
 --
--- >>> pretty $ col 1 m
+-- > pretty $ col 1 m
 -- [1,5,9]
 col :: forall m n a. (KnownNat m, KnownNat n, HasShape '[m, n]) => Int -> Matrix m n a -> Vector n a
-col i (Array a) = UnsafeArray $ V.generate m (\x -> V.unsafeIndex a (i + x * n))
+col i (Array a) = Array $ V.generate m (\x -> V.unsafeIndex a (i + x * n))
   where
     m = fromIntegral $ natVal @m Proxy
     n = fromIntegral $ natVal @n Proxy
 
 -- | Column extraction checked at type level.
 --
--- >>> pretty $ safeCol (Proxy :: Proxy 1) m
+-- > pretty $ safeCol (Proxy :: Proxy 1) m
 -- [1,5,9]
 --
--- >>> pretty $ safeCol (Proxy :: Proxy 4) m
+-- > pretty $ safeCol (Proxy :: Proxy 4) m
 -- ...
 -- ... index outside range
 -- ...
 safeCol :: forall m n a j. ('True ~ CheckIndex j n, KnownNat j, KnownNat m, KnownNat n, HasShape '[m, n]) => Proxy j -> Matrix m n a -> Vector n a
-safeCol _j (Array a) = UnsafeArray $ V.generate m (\x -> V.unsafeIndex a (j + x * n))
+safeCol _j (Array a) = Array $ V.generate m (\x -> V.unsafeIndex a (j + x * n))
   where
     m = fromIntegral $ natVal @m Proxy
     n = fromIntegral $ natVal @n Proxy
@@ -1194,17 +1303,17 @@ safeCol _j (Array a) = UnsafeArray $ V.generate m (\x -> V.unsafeIndex a (j + x 
 --
 -- This is dot sum (*) specialised to matrices
 --
--- >>> let a = [1,2,3,4] :: Array '[2,2] Int
--- >>> let b = [5,6,7,8] :: Array '[2,2] Int
--- >>> pretty $ a
+-- > let a = [1,2,3,4] :: Array '[2,2] Int
+-- > let b = [5,6,7,8] :: Array '[2,2] Int
+-- > pretty $ a
 -- [[1,2],
 --  [3,4]]
 --
--- >>> pretty $ b
+-- > pretty $ b
 -- [[5,6],
 --  [7,8]]
 --
--- >>> pretty $ mmult a b
+-- > pretty $ mmult a b
 -- [[19,22],
 --  [43,50]]
 mmult ::
