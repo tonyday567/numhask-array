@@ -11,7 +11,9 @@
 -- | Arrays with a fixed shape (known shape at compile time).
 module NumHask.Array.Fixed
   ( -- $usage
-    Array (UnsafeArray, Array, toVector),
+    Array (..),
+    pattern Array,
+    toVector,
 
     -- * shape
     shape,
@@ -35,8 +37,8 @@ module NumHask.Array.Fixed
     diag,
     undiag,
     singleton,
-    selects,
-    selectsExcept,
+    indexes,
+    indexesExcept,
     folds,
     extracts,
     extractsExcept,
@@ -289,7 +291,7 @@ toDynamic a = D.array (shape a) (toList a)
 --
 -- >>> import qualified NumHask.Array.Dynamic as D
 -- >>> d = D.array ([2,3,4]::[Int]) ([1..24] :: [Int]) :: D.Array Int
--- >>> pretty $ with d (selects (Proxy :: Proxy '[0,1]) [1,1] :: Array '[2,3,4] Int -> Array '[4] Int)
+-- >>> pretty $ with d (indexes (Proxy :: Proxy '[0,1]) [1,1] :: Array '[2,3,4] Int -> Array '[4] Int)
 -- [17,18,19,20]
 with ::
   forall a r s.
@@ -430,13 +432,13 @@ singleton a = tabulate (const a)
 
 -- | Select an array along dimensions.
 --
--- >>> let s = selects (Proxy :: Proxy '[0,1]) [1,1] a
+-- >>> let s = indexes (Proxy :: Proxy '[0,1]) [1,1] a
 -- >>> :t s
 -- s :: Array '[4] Int
 --
 -- >>> pretty $ s
 -- [17,18,19,20]
-selects ::
+indexes ::
   forall ds s s' a.
   ( HasShape s,
     HasShape ds,
@@ -447,20 +449,20 @@ selects ::
   [Int] ->
   Array s a ->
   Array s' a
-selects _ i a = tabulate go
+indexes _ i a = tabulate go
   where
     go s = index a (insertDims ds i s)
     ds = shapeOf @ds
 
 -- | Select an index /except/ along specified dimensions.
 --
--- >>> let s = selectsExcept (Proxy :: Proxy '[2]) [1,1] a
+-- >>> let s = indexesExcept (Proxy :: Proxy '[2]) [1,1] a
 -- >>> :t s
 -- s :: Array '[4] Int
 --
 -- >>> pretty $ s
 -- [17,18,19,20]
-selectsExcept ::
+indexesExcept ::
   forall ds s s' a.
   ( HasShape s,
     HasShape ds,
@@ -471,7 +473,7 @@ selectsExcept ::
   [Int] ->
   Array s a ->
   Array s' a
-selectsExcept _ i a = tabulate go
+indexesExcept _ i a = tabulate go
   where
     go s = index a (insertDims ds s i)
     ds = shapeOf @ds
@@ -495,7 +497,7 @@ folds ::
   Array so b
 folds f d a = tabulate go
   where
-    go s = f (selects d s a)
+    go s = f (indexes d s a)
 
 -- | Extracts dimensions to an outer layer.
 --
@@ -516,7 +518,7 @@ extracts ::
   Array so (Array si a)
 extracts d a = tabulate go
   where
-    go s = selects d s a
+    go s = indexes d s a
 
 -- | Extracts /except/ dimensions to an outer layer.
 --
@@ -537,7 +539,7 @@ extractsExcept ::
   Array so (Array si a)
 extractsExcept d a = tabulate go
   where
-    go s = selectsExcept d s a
+    go s = indexesExcept d s a
 
 -- | Join inner and outer dimension layers.
 --

@@ -59,6 +59,7 @@ library
         , distributive >=0.4 && <0.7
         , numhask      >=0.12 && <0.13
         , prettyprinter >= 1.7 && <1.8
+        , random        >=1.2 && <1.3
         , vector       >=0.12.3 && <0.14
         , vector-algorithms
     exposed-modules:
