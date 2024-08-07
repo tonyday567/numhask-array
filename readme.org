@@ -138,7 +138,7 @@ D.mult (D.inverse a) a == a
 a = D.array [3,3] ([1,0,1,0,1,2,0,0,1] :: [Double]) :: D.Array Double
 n = D.shape a !! 0
 ti = D.undiag 2 (fmap recip (D.diag a))
-tl = zipWithE (-) a (D.undiag 2 (D.diag a))
+tl = zipWith (-) a (D.undiag 2 (D.diag a))
 l = fmap negate (D.dot sum (*) ti tl)
 l
 -- fmap (sum (fmap (l ^) (fmap fromIntegral $ D.range [n])) *) ti
@@ -149,7 +149,7 @@ D.shape x'
 D.shape (x' ! [0,0])
 
 
-foldr (zipWithE (+)) (x' ! [0]) (D.tails [0] x')
+foldr (zipWith (+)) (x' ! [0]) (D.tails [0] x')
 D.isScalar $ heads [0] x'
 x' ! [0]
 D.tails [0] x'
@@ -195,12 +195,12 @@ invtri a'
 a = D.array [3,3] ([1,0,1,0,1,2,0,0,1] :: [Double]) :: D.Array Double
 n = D.shape a !! 0
 ti = D.undiag 2 (fmap recip (D.diag a))
-tl = zipWithE (-) a (D.undiag 2 (D.diag a))
+tl = zipWith (-) a (D.undiag 2 (D.diag a))
 l = fmap negate (D.dot sum (*) ti tl)
 pow a n = foldr ($) (D.ident [3,3]) (replicate n (D.mult a))
 :t pow
 pow l 2
-add = zipWithE (+)
+add = zipWith (+)
 sum' = foldl' add (D.konst [3,3] 0)
 :t sum'
 D.mult (sum' (fmap (pow l) (fmap fromIntegral $ D.range [n]))) ti
@@ -265,7 +265,7 @@ D.tabulateA (D.toScalar 3) id
 m = D.array [3,4] [0..11]
 m
 D.zipWith (-) m m
-D.zipWithE (-) m m
+D.zipWith (-) m m
 #+end_src
 
 #+RESULTS:
