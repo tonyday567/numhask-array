@@ -33,7 +33,7 @@ module NumHask.Array.Dynamic
     length,
     isNull,
 
-    -- * indexing
+    -- * Indexing
     index,
     (!),
     (!?),
@@ -507,14 +507,14 @@ isScalar a = rank a == zero
 -- >>> asSingleton (toScalar 4)
 -- UnsafeArray [1] [4]
 asSingleton :: Array a -> Array a
-asSingleton = unsafeModifyShape (\s -> bool s [1] (null s))
+asSingleton = unsafeModifyShape S.asSingleton
 
 -- | Convert arrays with shape [1] to scalars.
 --
 -- >>> asScalar (singleton 3)
 -- UnsafeArray [] [3]
 asScalar :: Array a -> Array a
-asScalar = unsafeModifyShape (\s -> bool s [] (s == [1]))
+asScalar = unsafeModifyShape S.asScalar
 
 -- * Creation
 -- | An array with no elements.

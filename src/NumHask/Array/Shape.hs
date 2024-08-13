@@ -3,6 +3,30 @@
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# Language MagicHash #-}
+{-# Language CPP #-}
+{-# Language AllowAmbiguousTypes #-}
+{-# Language ConstraintKinds #-}
+{-# Language DataKinds #-}
+{-# Language DeriveLift #-}
+{-# Language PolyKinds #-}
+{-# Language DerivingStrategies #-}
+{-# Language FlexibleContexts #-}
+{-# Language GADTs #-}
+{-# Language MagicHash #-}
+{-# Language LambdaCase #-}
+{-# Language PatternSynonyms #-}
+{-# Language RankNTypes #-}
+{-# Language RoleAnnotations #-}
+{-# Language ScopedTypeVariables #-}
+{-# Language StandaloneDeriving #-}
+{-# Language TypeApplications #-}
+{-# Language TypeFamilies #-}
+{-# Language TypeOperators #-}
+{-# Language UndecidableInstances #-}
+{-# Language Unsafe #-}
+{-# Language ViewPatterns #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
@@ -12,10 +36,21 @@ module NumHask.Array.Shape
     Shape (..),
     HasShape (..),
     shapeOf,
+    rankOf,
+    Fin (..),
+    safeFin,
+    Fins (..),
+    toFins,
     flatten,
     shapen,
     isDiag,
     inside,
+    Inside,
+    ShapeLTE,
+    asSingleton,
+    AsSingleton,
+    asScalar,
+    AsScalar,
     rotate,
     type (++),
     type (!!),
@@ -32,6 +67,7 @@ module NumHask.Array.Shape
     Size,
     indexOf,
     IndexOf,
+    Min,
     minimum,
     Minimum,
     checkIndex,
@@ -46,13 +82,16 @@ module NumHask.Array.Shape
     deleteDim,
     DeleteDim,
     replaceDim,
+    ReplaceDim,
     preDeletePositions,
     preInsertPositions,
     PosRelative,
     DecMap,
     insertDims,
     InsertDims,
+    PrependDims,
     replaceDims,
+    ReplaceDims,
     modifyDims,
     deleteDims,
     DeleteDims,
@@ -74,6 +113,8 @@ module NumHask.Array.Shape
     Squeeze,
     incAt,
     decAt,
+    Zip,
+    Windows,
   )
 where
 
@@ -81,8 +122,19 @@ import Data.List qualified as List
 import Data.Proxy
 import Data.Type.Bool
 import Data.Type.Equality
-import GHC.TypeLits as L
-import NumHask.Prelude as P hiding (Last, minimum)
+import GHC.TypeLits qualified as L
+import Prelude qualified
+import NumHask.Prelude as P hiding (Min, Last, minimum)
+import Control.Monad
+import Data.Coerce
+import Data.Data
+import GHC.Arr
+import GHC.Exts
+import GHC.TypeNats
+import GHC.TypeLits (TypeError, ErrorMessage(..))
+import Text.Read
+import Data.Type.Ord
+import Unsafe.Coerce
 
 -- $setup
 -- >>> :m -Prelude
@@ -96,11 +148,10 @@ import NumHask.Prelude as P hiding (Last, minimum)
 -- | Get the value of a type level Nat.
 -- Use with explicit type application, i.e., @valueOf \@42@
 valueOf :: forall n. (KnownNat n) => Int
-valueOf = fromIntegral $ natVal (Proxy :: Proxy n)
+valueOf = Prelude.fromIntegral $ natVal (Proxy :: Proxy n)
 {-# INLINE valueOf #-}
 
 -- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
--- Using [Int] as the index for an array nicely represents the practical interests and constraints downstream of this high-level API: densely-packed numbers (reals or integrals), indexed and layered.
 newtype Shape (s :: [Nat]) = Shape {shapeVal :: [Int]} deriving (Show)
 
 class HasShape s where
@@ -110,11 +161,57 @@ instance HasShape '[] where
   toShape = Shape []
 
 instance (KnownNat n, HasShape s) => HasShape (n : s) where
-  toShape = Shape $ fromInteger (natVal (Proxy :: Proxy n)) : shapeVal (toShape :: Shape s)
+  toShape = Shape $ Prelude.fromIntegral (natVal (Proxy :: Proxy n)) : shapeVal (toShape :: Shape s)
 
 shapeOf :: forall s. (HasShape s) => [Int]
 shapeOf = shapeVal (toShape @s)
 {-# INLINE shapeOf #-}
+
+rankOf :: forall s. (HasShape s) => Int
+rankOf = length (shapeVal (toShape @s))
+{-# INLINE rankOf #-}
+
+type role Fin nominal
+newtype Fin s
+  -- | This is more unsafe than it looks.
+  = UnsafeFin
+  { fromFin :: Int
+  }
+  deriving stock (Eq, Ord)
+
+instance Show (Fin n) where
+  show (UnsafeFin x) = show x
+
+-- | Construct an Fin safely.
+--
+-- >>> safeFin 1 :: Maybe (Fin 2)
+-- Just 1
+--
+-- >>> safeFin 2 :: Maybe (Fin 2)
+-- Nothing
+safeFin :: forall n. (KnownNat n) => Int -> Maybe (Fin n)
+safeFin x = bool Nothing (Just (UnsafeFin x)) (x >= 0 && x < valueOf @n)
+
+type role Fins nominal
+newtype Fins s
+  -- | This is more unsafe than it looks.
+  = UnsafeFins
+  { fromFins :: [Int]
+  }
+  deriving stock (Eq, Ord)
+
+instance Show (Fins n) where
+  show (UnsafeFins x) = show x
+
+-- | Construct an Fins safely.
+--
+-- >>> toFins [1,2,3] :: Maybe (Fins [2,3,4])
+-- Just [1,2,3]
+--
+-- >>> toFins [2] :: Maybe (Fins '[2])
+-- Nothing
+toFins :: forall s. (HasShape s) => [Int] -> Maybe (Fins s)
+toFins xs = bool Nothing (Just (UnsafeFins xs)) (inside xs (shapeOf @s))
 
 -- | Number of dimensions
 rank :: [a] -> Int
@@ -208,6 +305,37 @@ isDiag (x : y : xs) = x == y && isDiag (y : xs)
 inside :: [Int] -> [Int] -> Bool
 inside i r = List.and $ List.zipWith (\i' r' -> i' >= zero && i' < r') i r
 
+type family Inside (i :: [Nat]) (s :: [Nat]) where
+  Inside '[] '[] = 'True
+  Inside '[] _ = 'False
+  Inside _ '[] = 'False
+  Inside (x : xs) (y : ys) = If (0 <=? x && x <? y) (Inside xs ys) 'False
+
+-- | Check if a shape is <= another shape (and of the same rank).
+type family ShapeLTE (x :: [Nat]) (y :: [Nat]) where
+  ShapeLTE '[] '[] = 'True
+  ShapeLTE '[] _ = 'False
+  ShapeLTE _ '[] = 'False
+  ShapeLTE (x : xs) (y : ys) = If (x <=? y) (ShapeLTE xs ys) 'False
+
+asSingleton :: [Int] -> [Int]
+asSingleton [] = [1]
+asSingleton x = x
+
+-- | Convert a scalar to a dimensioned shape
+type family AsSingleton (x :: [Nat]) where
+  AsSingleton '[] = '[1]
+  AsSingleton x = x
+
+asScalar :: [Int] -> [Int]
+asScalar [1] = []
+asScalar x = x
+
+-- | Convert a scalar to a dimensioned shape
+type family AsScalar (x :: [Nat]) where
+  AsScalar '[1] = '[]
+  AsScalar x = x
+
 -- | rotate a list
 --
 -- >>> rotate 1 [0..3]
@@ -232,6 +360,9 @@ type family IndexOf (i :: Nat) (xs :: [Nat]) :: Nat where
   IndexOf 0 (xs : _) = xs
   IndexOf n (_ : xs) = IndexOf (n - 1) xs
   IndexOf _ _ = L.TypeError ('Text "indexOf outside bounds")
+
+-- type family Min (x :: Nat) (y :: Nat) :: Nat where
+--   Min x y = If (x <=? y) x y
 
 -- | minimum value in a list
 --
@@ -308,6 +439,9 @@ modifyDim d f xs = take d xs <> (pure . f) (xs List.!! d) <> drop (d + 1) xs
 -- [1,3,4]
 replaceDim :: Int -> Int -> [Int] -> [Int]
 replaceDim d x xs = modifyDim d (const x) xs
+
+type family ReplaceDim (i :: Nat) (d :: Nat) (xs :: [Nat]) :: [Nat] where
+  ReplaceDim i d s = Take i s ++ (d : Drop (i + 1) s)
 
 -- | reverse an index along specific dimensions.
 --
@@ -406,6 +540,9 @@ type family InsertDimsGo (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
   InsertDimsGo (x : xs') (y : ys') as' = InsertDimsGo xs' ys' (InsertDim x y as')
   InsertDimsGo _ _ _ = L.TypeError ('Text "mismatched ranks")
 
+type family PrependDims (ys :: [Nat]) (as :: [Nat]) where
+  PrependDims (y : ys) as = PrependDims ys (y : as)
+
 -- | replace indexes with a new value according to a dimension list.
 --
 -- >>> replaceDims [0,1] [1,5] [2,3,4]
@@ -415,6 +552,11 @@ type family InsertDimsGo (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
 -- [3]
 replaceDims :: [Int] -> [Int] -> [Int] -> [Int]
 replaceDims ds xs ns = foldl' (\ns' (d, x) -> replaceDim d x ns') ns (zip ds xs)
+
+type family ReplaceDims (ds :: [Nat]) (rs :: [Nat]) (as :: [Nat]) where
+  ReplaceDims '[] _ as' = as'
+  ReplaceDims (x : xs') (y : ys') as' = ReplaceDims xs' ys' (InsertDim x y as')
+  ReplaceDims _ _ _ = L.TypeError ('Text "mismatched ranks")
 
 -- | modify indexes with (separate) functions according to a dimension list.
 --
@@ -566,7 +708,7 @@ instance KnownNats '[] where
   natVals _ = []
 
 instance (KnownNat n, KnownNats ns) => KnownNats (n : ns) where
-  natVals _ = fromInteger (natVal (Proxy @n)) : natVals (Proxy @ns)
+  natVals _ = (Prelude.fromIntegral $ natVal (Proxy @n)) : natVals (Proxy @ns)
 
 -- | Reflect a list of list of Nats
 class KnownNatss (ns :: [[Nat]]) where
@@ -577,3 +719,17 @@ instance KnownNatss '[] where
 
 instance (KnownNats n, KnownNatss ns) => KnownNatss (n : ns) where
   natValss _ = natVals (Proxy @n) : natValss (Proxy @ns)
+
+type family Zip (xs :: [Nat]) (ys :: [Nat]) where
+  Zip xs ys = ZipGo xs ys '[]
+
+type family ZipGo (xs :: [Nat]) (ys :: [Nat]) (zs :: [(Nat, Nat)]) where
+  ZipGo '[] _ zs = zs
+  ZipGo _ '[] zs = zs
+  ZipGo (x : xs) (y : ys) zs = zs -- ZipGo xs ys ((x,y):zs)
+
+type family Windows (ws :: [Nat]) (xs :: [Nat]) where
+  Windows ws _ = ws
+
+--     c = List.length xs
+--     df s = List.zipWith (\s' x' -> s' - x' + 1) s xs <> xs <> List.drop c s
