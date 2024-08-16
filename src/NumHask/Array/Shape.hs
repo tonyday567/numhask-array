@@ -115,12 +115,13 @@ module NumHask.Array.Shape
     decAt,
     Zip,
     Windows,
+    Fcf.Eval,
   )
 where
 
 import Data.List qualified as List
 import Data.Proxy
-import Data.Type.Bool
+import Data.Type.Bool hiding (Not)
 import Data.Type.Equality
 import GHC.TypeLits qualified as L
 import Prelude qualified
@@ -135,6 +136,9 @@ import GHC.TypeLits (TypeError, ErrorMessage(..))
 import Text.Read
 import Data.Type.Ord
 import Unsafe.Coerce
+import Fcf hiding (type (&&), type (+), type (-), type (++))
+import Fcf qualified
+import Control.Monad
 
 -- $setup
 -- >>> :m -Prelude
@@ -144,6 +148,7 @@ import Unsafe.Coerce
 -- >>> :set -XRebindableSyntax
 -- >>> import NumHask.Prelude
 -- >>> import NumHask.Array.Shape as S
+-- >>> import Fcf (Eval)
 
 -- | Get the value of a type level Nat.
 -- Use with explicit type application, i.e., @valueOf \@42@
@@ -689,16 +694,21 @@ type family CheckReorder (ds :: [Nat]) (s :: [Nat]) where
       ~ 'True
 
 -- | remove 1's from a list
+--
+-- >>> squeeze [0,1,2,3]
+-- [0,2,3]
 squeeze :: (Eq a, Multiplicative a) => [a] -> [a]
 squeeze = filter (/= one)
 
-type family Squeeze (a :: [Nat]) where
-  Squeeze '[] = '[]
-  Squeeze a = Filter '[] a 1
+-- | Remove 1's from a list.
+--
+-- >>> :k! (Eval (Squeeze [0,1,2,3]))
+-- (Eval (Squeeze [0,1,2,3])) :: [Natural]
+-- = [0, 2, 3]
+data Squeeze :: [a] -> Exp [a]
 
-type family Filter (r :: [Nat]) (xs :: [Nat]) (i :: Nat) where
-  Filter r '[] _ = Reverse r
-  Filter r (x : xs) i = Filter (If (x == i) r (x : r)) xs i
+type instance Eval (Squeeze xs) =
+  Eval (Filter (Not <=< TyEq 1) xs)
 
 -- | Reflect a list of Nats
 class KnownNats (ns :: [Nat]) where
@@ -719,14 +729,6 @@ instance KnownNatss '[] where
 
 instance (KnownNats n, KnownNatss ns) => KnownNatss (n : ns) where
   natValss _ = natVals (Proxy @n) : natValss (Proxy @ns)
-
-type family Zip (xs :: [Nat]) (ys :: [Nat]) where
-  Zip xs ys = ZipGo xs ys '[]
-
-type family ZipGo (xs :: [Nat]) (ys :: [Nat]) (zs :: [(Nat, Nat)]) where
-  ZipGo '[] _ zs = zs
-  ZipGo _ '[] zs = zs
-  ZipGo (x : xs) (y : ys) zs = zs -- ZipGo xs ys ((x,y):zs)
 
 type family Windows (ws :: [Nat]) (xs :: [Nat]) where
   Windows ws _ = ws

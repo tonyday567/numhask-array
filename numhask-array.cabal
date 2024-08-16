@@ -57,6 +57,7 @@ library
         , adjunctions  >=4.0 && <5
         , base         >=4.14 && <5
         , distributive >=0.4 && <0.7
+        , first-class-families
         , numhask      >=0.12 && <0.13
         , prettyprinter >= 1.7 && <1.8
         , random        >=1.2 && <1.3
