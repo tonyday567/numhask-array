@@ -75,6 +75,7 @@ module NumHask.Array.Fixed
     -- ** Single-dimension operators
     take,
     slice,
+    insert,
 
     -- * Operators
     takes,
@@ -106,7 +107,11 @@ module NumHask.Array.Fixed
 
     -- * Shape manipulations
     reshape,
+    reorder,
     squeeze,
+    reverses,
+    rotate,
+    rotates,
 
 {-
 
@@ -165,7 +170,7 @@ import Data.Vector qualified as V
 import Fcf hiding (type (&&), type (+), type (-), type (++))
 import GHC.TypeNats
 import NumHask.Array.Dynamic qualified as D
-import NumHask.Array.Shape hiding (rank, size, asScalar, asSingleton, squeeze)
+import NumHask.Array.Shape hiding (rank, size, asScalar, asSingleton, squeeze, rotate, reorder)
 import NumHask.Array.Shape qualified as S
 import NumHask.Prelude as P hiding (Min, take, diff, zipWith, empty, sequence, toList, length)
 import Prettyprinter hiding (dot)
@@ -629,13 +634,14 @@ diag a = tabulate (go . fromFins)
 --  [0,1,0],
 --  [0,0,2]]
 undiag ::
-  forall a s.
+  forall s' a s.
   ( HasShape s,
-    Additive a,
-    HasShape ((++) s s)
+    HasShape s',
+    s' ~ Eval ((++) s s),
+    Additive a
   ) =>
   Array s a ->
-  Array ((++) s s) a
+  Array s' a
 undiag a = tabulate (go . fromFins)
   where
     go [] = index a (UnsafeFins [])
@@ -746,8 +752,42 @@ slice ::
   Proxy l ->
   Array s a ->
   Array s' a
-
 slice _ o _ a = unsafeBackpermute (S.modifyDim (valueOf @d) (+ o)) a
+
+-- | Insert along a dimension at a position.
+--
+-- >>> pretty $ insert (Proxy :: Proxy 2) 0 a (konst @[2,3] 0)
+-- [[[0,0,1,2,3],
+--   [0,4,5,6,7],
+--   [0,8,9,10,11]],
+--  [[0,12,13,14,15],
+--   [0,16,17,18,19],
+--   [0,20,21,22,23]]]
+-- >>> toDynamic $ insert (Proxy :: Proxy 0) 0 (toScalar 1) (toScalar 2)
+-- UnsafeArray [2] [2,1]
+insert ::
+  forall s' s si d a.
+  (KnownNat d,
+   HasShape s,
+   HasShape si,
+   HasShape s',
+   HasShape (Eval (AsSingleton s)),
+   HasShape (Eval (AsSingleton si)),
+   s' ~ Eval (IncAt d (Eval (AsSingleton s)))
+   ) =>
+  Proxy d ->
+  Int ->
+  Array s a ->
+  Array si a ->
+  Array s' a
+insert _ i a b = tabulate go
+  where
+    go xs
+      | xs' !! d == i = index (asSingleton b) (UnsafeFins (S.deleteDim d xs'))
+      | xs' !! d < i = index (asSingleton a) (UnsafeFins xs')
+      | otherwise = index (asSingleton a) (UnsafeFins (S.decAt d xs'))
+      where xs' = fromFins xs
+    d = valueOf @d
 
 -- | Takes the top-most elements according to the new dimensions.
 --
@@ -1114,15 +1154,16 @@ zips ds f a b = joins ds (zipWith f (extracts ds a) (extracts ds b))
 --   [[([1,1],[0,0]),([1,1],[0,1])],
 --    [([1,1],[1,0]),([1,1],[1,1])]]]]
 expand ::
-  forall s s' a b c.
-  ( HasShape s,
-    HasShape s',
-    HasShape ((++) s s')
+  forall sc sa sb a b c.
+  ( HasShape sa,
+    HasShape sb,
+    HasShape sc,
+    sc ~ Eval ((++) sa sb)
   ) =>
   (a -> b -> c) ->
-  Array s a ->
-  Array s' b ->
-  Array ((++) s s') c
+  Array sa a ->
+  Array sb b ->
+  Array sc c
 expand f a b = tabulate (\i -> f (index a (UnsafeFins $ List.take r (fromFins i))) (index b (UnsafeFins $ drop r (fromFins i))))
   where
     r = rank a
@@ -1139,15 +1180,16 @@ expand f a b = tabulate (\i -> f (index a (UnsafeFins $ List.take r (fromFins i)
 --  [(0,4),(1,4),(2,4)],
 --  [(0,5),(1,5),(2,5)]]
 expandr ::
-  forall s s' a b c.
-  ( HasShape s,
-    HasShape s',
-    HasShape ((++) s s')
+  forall sc sa sb a b c.
+  ( HasShape sa,
+    HasShape sb,
+    HasShape sc,
+    sc ~ Eval ((++) sa sb)
   ) =>
   (a -> b -> c) ->
-  Array s a ->
-  Array s' b ->
-  Array ((++) s s') c
+  Array sa a ->
+  Array sb b ->
+  Array sc c
 expandr f a b = tabulate (\i -> f (index a (UnsafeFins $ drop r (fromFins i))) (index b (UnsafeFins $ List.take r (fromFins i))))
   where
     r = rank a
@@ -1204,15 +1246,15 @@ dot ::
   forall a b c d sa sb s' ss se.
   ( HasShape sa,
     HasShape sb,
-    HasShape (sa ++ sb),
-    se ~ TakeDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (sa ++ sb),
+    HasShape (Eval ((++) sa sb)),
+    se ~ TakeDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (Eval ((++) sa sb)),
     HasShape se,
     KnownNat (Eval (Minimum se)),
     KnownNat (Eval (Rank sa) - 1),
     KnownNat (Eval (Rank sa)),
     ss ~ '[Eval (Minimum se)],
     HasShape ss,
-    s' ~ DeleteDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (sa ++ sb),
+    s' ~ DeleteDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (Eval ((++) sa sb)),
     HasShape s'
   ) =>
   (Array ss c -> d) ->
@@ -1250,15 +1292,15 @@ mult ::
     Multiplicative a,
     HasShape sa,
     HasShape sb,
-    HasShape (sa ++ sb),
-    se ~ TakeDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (sa ++ sb),
+    HasShape (Eval ((++) sa sb)),
+    se ~ TakeDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (Eval ((++) sa sb)),
     HasShape se,
     KnownNat (Eval (Minimum se)),
     KnownNat (Eval (Rank sa) - 1),
     KnownNat (Eval (Rank sa)),
     ss ~ '[Eval (Minimum se)],
     HasShape ss,
-    s' ~ DeleteDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (sa ++ sb),
+    s' ~ DeleteDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (Eval ((++) sa sb)),
     HasShape s'
   ) =>
   Array sa a ->
@@ -1293,6 +1335,29 @@ reshape = unsafeBackpermute (shapen s . flatten s')
   where
     s = shapeOf @s
     s' = shapeOf @s'
+
+-- | Change the order of dimensions.
+--
+-- >>> pretty $ reorder (Proxy :: Proxy [2,0,1]) a
+-- [[[0,4,8],
+--   [12,16,20]],
+--  [[1,5,9],
+--   [13,17,21]],
+--  [[2,6,10],
+--   [14,18,22]],
+--  [[3,7,11],
+--   [15,19,23]]]
+reorder ::
+  forall dims s s' a.
+  (HasShape s,
+   HasShape s',
+   HasShape dims,
+   s' ~ Eval (Reorder s dims)
+  ) =>
+  Proxy dims ->
+  Array s a ->
+  Array s' a
+reorder _ a = unsafeBackpermute (\s -> S.insertDims (shapeOf @dims) s []) a
 
 -- | Remove single dimensions.
 --
@@ -1341,6 +1406,55 @@ squeeze ::
   Array t a
 squeeze = unsafeModifyShape
 
+-- | Reverses element order along specified dimensions.
+--
+-- >>> pretty $ reverses [0,1] a
+-- [[[20,21,22,23],
+--   [16,17,18,19],
+--   [12,13,14,15]],
+--  [[8,9,10,11],
+--   [4,5,6,7],
+--   [0,1,2,3]]]
+reverses ::
+  (HasShape s) =>
+  [Int] ->
+  Array s a ->
+  Array s a
+reverses ds a = unsafeBackpermute (S.reverseIndex ds (shape a)) a
+
+-- | Rotate an array along a dimension.
+--
+-- >>> pretty $ rotate 1 2 a
+-- [[[8,9,10,11],
+--   [0,1,2,3],
+--   [4,5,6,7]],
+--  [[20,21,22,23],
+--   [12,13,14,15],
+--   [16,17,18,19]]]
+rotate ::
+  (HasShape s) =>
+  Int ->
+  Int ->
+  Array s a ->
+  Array s a
+rotate d r a = unsafeBackpermute (S.modifyDim d (\i -> (r + i) `mod` (shape a !! d))) a
+
+-- | Rotate an array by/along offset,dimension tuples.
+--
+-- >>> pretty $ rotates [(1, 2)] a
+-- [[[8,9,10,11],
+--   [0,1,2,3],
+--   [4,5,6,7]],
+--  [[20,21,22,23],
+--   [12,13,14,15],
+--   [16,17,18,19]]]
+rotates ::
+  forall a s.
+  (HasShape s) =>
+  [(Int, Int)] ->
+  Array s a ->
+  Array s a
+rotates rs a = unsafeBackpermute (rotateIndex rs (shapeOf @s)) a
 
 {-
 -- | Reshape an array (with the same number of elements).

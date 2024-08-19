@@ -52,6 +52,8 @@ module NumHask.Array.Shape
     asScalar,
     AsScalar,
     GetIndex,
+    unsafeGetIndex,
+    UnsafeGetIndex,
     rotate,
     type (++),
     type (!!),
@@ -64,23 +66,21 @@ module NumHask.Array.Shape
     rerank,
     size,
     Size,
-    indexOf,
-    IndexOf,
     Min,
     minimum,
     Minimum,
-    checkIndex,
-    CheckIndex,
-    checkIndexes,
-    CheckIndexes,
-    reverseIndex,
     modifyDim,
-    rotateIndex,
+    ModifyDim,
+    replaceDim,
+    ReplaceDim,
+    incAt,
+    IncAt,
+    decAt,
+    DecAt,
     insertDim,
     InsertDim,
     deleteDim,
     DeleteDim,
-    replaceDim,
     preDeletePositions,
     preInsertPositions,
     PosRelative,
@@ -106,14 +106,20 @@ module NumHask.Array.Shape
     CheckInsert,
     reorder,
     Reorder,
-    CheckReorder,
+    ReorderOk,
     squeeze,
     Squeeze,
-    incAt,
-    decAt,
     Zip,
     Windows,
     Fcf.Eval,
+
+    -- * Assertions
+    checkIndex,
+    CheckIndex,
+
+    -- * index-only operations
+    reverseIndex,
+    rotateIndex,
   )
 where
 
@@ -136,7 +142,7 @@ import Unsafe.Coerce
 import Fcf hiding (type (&&), type (+), type (-), type (++))
 import Fcf qualified
 import Fcf.Class.Foldable
-import Fcf.Data.List (Take, Drop)
+import Fcf.Data.List
 import Control.Monad
 
 -- $setup
@@ -152,6 +158,7 @@ import Control.Monad
 -- | Get the value of a type level Nat.
 -- Use with explicit type application
 --
+
 -- >>> valueOf @42
 -- 42
 valueOf :: forall n. (KnownNat n) => Int
@@ -438,22 +445,28 @@ type family GetIndexImpl (n :: Nat) (xs :: [k]) where
   GetIndexImpl 0 (x ': _) = 'Just x
   GetIndexImpl n (_ ': xs) = GetIndexImpl (n - 1) xs
 
--- | indexOf i xs is the i'th element of xs (or zero if out-of-bounds)
+-- | UnsafeGetIndex i xs is the i'th element of xs (or error if out-of-bounds)
 --
--- >>> indexOf 1 [2,3,4]
+-- >>> :k! Eval (UnsafeGetIndex 1 [2,3,4])
+-- ...
+-- = 3
+-- >>> :k! Eval (UnsafeGetIndex 3 [2,3,4])
+-- ...
+-- = (TypeError ...)
+data UnsafeGetIndex :: Nat -> [a] -> Exp a
+type instance Eval (UnsafeGetIndex n xs) = Eval (FromMaybe (L.TypeError (L.Text "UnsafeGetIndex out of bounds")) (Eval (GetIndex n xs)))
+
+-- | unsafeGetIndex i xs is the i'th element of xs (or error if out-of-bounds)
+--
+-- >>> unsafeGetIndex 1 [2,3,4]
 -- 3
-indexOf :: Int -> [Int] -> Int
-indexOf 0 (s : _) = s
-indexOf n (_ : s) = indexOf (n - 1) s
-indexOf _ _ = error "indexOf outside bounds"
-
-type family IndexOf (i :: Nat) (xs :: [Nat]) :: Nat where
-  IndexOf 0 (xs : _) = xs
-  IndexOf n (_ : xs) = IndexOf (n - 1) xs
-  IndexOf _ _ = L.TypeError ('Text "indexOf outside bounds")
-
--- type family Min (x :: Nat) (y :: Nat) :: Nat where
---   Min x y = If (x <=? y) x y
+-- >>> unsafeGetIndex 3 [2,3,4]
+-- *** Exception: unsafeGetIndex outside bounds
+-- ...
+unsafeGetIndex :: Int -> [Int] -> Int
+unsafeGetIndex 0 (s : _) = s
+unsafeGetIndex n (_ : s) = unsafeGetIndex (n - 1) s
+unsafeGetIndex _ _ = error "unsafeGetIndex outside bounds"
 
 -- | minimum dimension
 --
@@ -484,20 +497,6 @@ type instance Eval (Minimum (x ': xs)) =
 data Min :: a -> a -> Exp a
 
 type instance Eval (Min a b) = If (Eval (a Fcf.< b)) a b
-
-type family Init (a :: [k]) :: [k] where
-  Init '[] = L.TypeError ('Text "No init")
-  Init '[_] = '[]
-  Init (x : xs) = x : Init xs
-
-type family Last (a :: [k]) :: k where
-  Last '[] = L.TypeError ('Text "No last")
-  Last '[x] = x
-  Last (_ : xs) = Last xs
-
-type family (a :: [k]) ++ (b :: [k]) :: [k] where
-  '[] ++ b = b
-  (a : as) ++ b = a : (as ++ b)
 
 -- | delete the i'th dimension
 --
@@ -550,6 +549,16 @@ type instance Eval (InsertDim i d ds) =
 modifyDim :: Int -> (Int -> Int) -> [Int] -> [Int]
 modifyDim d f xs = take d xs <> (pure . f) (xs List.!! d) <> drop (d + 1) xs
 
+-- | modify an index at a specific dimension. Unmodified if out of bounds.
+--
+-- >>> :k! Eval (ModifyDim 0 ((Fcf.+) 1) [0,1,2])
+-- ...
+-- = [1, 1, 2]
+data ModifyDim :: Nat -> (Nat -> Exp Nat) -> [Nat] -> Exp [Nat]
+
+type instance Eval (ModifyDim d f ds) =
+  Eval (FromMaybe ds =<< (Map (Flip (SetIndex d) ds) =<< (Map f =<< (GetIndex d ds))))
+
 -- | replace an index at a specific dimension.
 --
 -- >>> replaceDim 0 1 [2,3,4]
@@ -557,25 +566,50 @@ modifyDim d f xs = take d xs <> (pure . f) (xs List.!! d) <> drop (d + 1) xs
 replaceDim :: Int -> Int -> [Int] -> [Int]
 replaceDim d x xs = modifyDim d (const x) xs
 
--- | reverse an index along specific dimensions.
+-- | replace an index at a specific dimension.
 --
--- >>> reverseIndex [0] [2,3,4] [0,1,2]
--- [1,1,2]
-reverseIndex :: [Int] -> [Int] -> [Int] -> [Int]
-reverseIndex ds ns xs = fmap (\(i, x, n) -> bool x (n - 1 - x) (i `elem` ds)) (zip3 [0 ..] xs ns)
+-- >>> :k! Eval (ReplaceDim 0 1 [2,3,4])
+-- ...
+-- = [1, 3, 4]
+data ReplaceDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
 
-type Reverse (a :: [k]) = ReverseGo a '[]
+type instance Eval (ReplaceDim d x ds) =
+  Eval (SetIndex d x ds)
 
-type family ReverseGo (a :: [k]) (b :: [k]) :: [k] where
-  ReverseGo '[] b = b
-  ReverseGo (a : as) b = ReverseGo as (a : b)
-
--- | rotate an index along specific dimensions.
+-- | Increment the index at a dimension of a shape by one.
 --
--- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
--- [1,1,2]
-rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
-rotateIndex rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
+-- >>> incAt 1 [2,3,4]
+-- [2,4,4]
+incAt :: Int -> [Int] -> [Int]
+incAt d ds = modifyDim d (+1) ds
+
+-- | Increment the index at a dimension of a shape by one.
+--
+-- >>> :k! Eval (IncAt 1 [2,3,4])
+-- ...
+-- = [2, 4, 4]
+data IncAt :: Nat -> t Nat -> Exp (t Nat)
+
+type instance Eval (IncAt d ds) =
+  Eval (ModifyDim d ((Fcf.+) 1) ds)
+
+-- | Decrement the index at a dimension os a shape by one.
+--
+-- >>> decAt 1 [2,3,4]
+-- [2,2,4]
+decAt :: Int -> [Int] -> [Int]
+decAt d ds = modifyDim d (\x -> x - 1) ds
+
+-- | Decrement the index at a dimension of a shape by one.
+--
+-- >>> :k! Eval (DecAt 1 [2,3,4])
+-- ...
+-- = [2, 2, 4]
+data DecAt :: Nat -> t Nat -> Exp (t Nat)
+
+type instance Eval (DecAt d ds) =
+  Eval (ModifyDim d (Flip (Fcf.-) 1) ds)
+
 
 -- | Convert a list of position that reference deletions according to a final shape to one that references deletions relative to an initial shape.
 --
@@ -612,7 +646,7 @@ type family PosRelative (s :: [Nat]) where
   PosRelative s = PosRelativeGo s '[]
 
 type family PosRelativeGo (r :: [Nat]) (s :: [Nat]) where
-  PosRelativeGo '[] r = Reverse r
+  PosRelativeGo '[] r = Eval (Reverse r)
   PosRelativeGo (x : xs) r = PosRelativeGo (DecMap x xs) (x : r)
 
 type family DecMap (x :: Nat) (ys :: [Nat]) :: [Nat] where
@@ -647,7 +681,7 @@ insertDims xs ys as = insertDimsGo (preInsertPositions xs) ys as
     insertDimsGo _ _ _ = throw (NumHaskException "mismatched ranks")
 
 type family InsertDims (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
-  InsertDims xs ys as = InsertDimsGo (Reverse (PosRelative (Reverse xs))) ys as
+  InsertDims xs ys as = InsertDimsGo (Eval (Reverse (PosRelative (Eval (Reverse xs))))) ys as
 
 type family InsertDimsGo (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
   InsertDimsGo '[] _ as' = as'
@@ -717,27 +751,6 @@ exclude r xs = deleteDims xs [0 .. (r - 1)]
 type family Exclude (r :: Nat) (i :: [Nat]) where
   Exclude r i = DeleteDims (EnumerateGo r) i
 
--- | /checkIndex i n/ checks if /i/ is a valid index of a list of length /n/
---
--- >>> checkIndex 0 0
--- True
--- >>> checkIndex 3 2
--- False
-checkIndex :: Int -> Int -> Bool
-checkIndex i n = (zero <= i && i + one <= n) || (i == zero && n == zero)
-
-type family CheckIndex (i :: Nat) (n :: Nat) :: Bool where
-  CheckIndex i n =
-    If ((0 <=? i) && (i + 1 <=? n)) 'True (L.TypeError ('Text "index outside range"))
-
--- | /checkIndexes is n/ check if /is/ are valid indexes of a list of length /n/
-checkIndexes :: [Int] -> Int -> Bool
-checkIndexes is n = all (`checkIndex` n) is
-
-type family CheckIndexes (i :: [Nat]) (n :: Nat) :: Bool where
-  CheckIndexes '[] _ = 'True
-  CheckIndexes (i : is) n = CheckIndex i n && CheckIndexes is n
-
 -- | concatenate two arrays at dimension i
 --
 -- Bespoke logic for scalars.
@@ -754,29 +767,21 @@ concatenate :: Int -> [Int] -> [Int] -> [Int]
 concatenate _ [] [] = [2]
 concatenate _ [] [x] = [x + 1]
 concatenate _ [x] [] = [x + 1]
-concatenate i s0 s1 = take i s0 ++ (indexOf i s0 + indexOf i s1 : drop (i + 1) s0)
+concatenate i s0 s1 = take i s0 ++ (unsafeGetIndex i s0 + unsafeGetIndex i s1 : drop (i + 1) s0)
 
-type Concatenate i s0 s1 = Eval (Take i s0) ++ (IndexOf i s0 + IndexOf i s1 : Eval (Drop (i + 1) s0))
+type Concatenate i s0 s1 = Eval (Take i s0) ++ (Eval (UnsafeGetIndex i s0) + Eval (UnsafeGetIndex i s1) : Eval (Drop (i + 1) s0))
 
 type CheckConcatenate i s0 s1 s =
-  ( CheckIndex i (Eval (Rank s0))
+  ( Eval (CheckIndex i (Eval (Rank s0)))
       && DeleteDim i s0 == DeleteDim i s1
       && Rank s0 == Rank s1
   )
     ~ 'True
 
 type CheckInsert d i s =
-  (CheckIndex d (Eval (Rank s)) && CheckIndex i (IndexOf d s)) ~ 'True
+  (Eval (CheckIndex d (Eval (Rank s))) && Eval (CheckIndex i (Eval (UnsafeGetIndex d s)))) ~ 'True
 
-type Insert d s = Eval (Take d s) ++ (IndexOf d s + 1 : Eval (Drop (d + 1) s))
-
--- | /incAt d s/ increments the index at /d/ of shape /s/ by one.
-incAt :: Int -> [Int] -> [Int]
-incAt d s = take d s ++ (indexOf d s + 1 : drop (d + 1) s)
-
--- | /decAt d s/ decrements the index at /d/ of shape /s/ by one.
-decAt :: Int -> [Int] -> [Int]
-decAt d s = take d s ++ (indexOf d s - 1 : drop (d + 1) s)
+type Insert d s = Eval (Take d s) ++ (Eval (UnsafeGetIndex d s) + 1 : Eval (Drop (d + 1) s))
 
 -- | /reorder s i/ reorders the dimensions of shape /s/ according to a list of positions /i/
 --
@@ -785,22 +790,20 @@ decAt d s = take d s ++ (indexOf d s - 1 : drop (d + 1) s)
 reorder :: [Int] -> [Int] -> [Int]
 reorder [] _ = []
 reorder _ [] = []
-reorder s (d : ds) = indexOf d s : reorder s ds
+reorder s (d : ds) = unsafeGetIndex d s : reorder s ds
 
-type family Reorder (s :: [Nat]) (ds :: [Nat]) :: [Nat] where
-  Reorder '[] _ = '[]
-  Reorder _ '[] = '[]
-  Reorder s (d : ds) = IndexOf d s : Reorder s ds
+data Reorder :: t Nat -> t Nat -> Exp (t Nat)
 
-type family CheckReorder (ds :: [Nat]) (s :: [Nat]) where
-  CheckReorder ds s =
-    If
-      ( Rank ds == Rank s
-          && CheckIndexes ds (Eval (Rank s))
-      )
-      'True
-      (L.TypeError ('Text "bad dimensions"))
-      ~ 'True
+type instance Eval (Reorder ds xs) =
+    If ( Eval (ReorderOk ds xs))
+      (Eval (Map (Flip UnsafeGetIndex ds) xs))
+      (L.TypeError ('Text "Reorder dimension indices out of bounds"))
+
+data ReorderOk :: t Nat -> t Nat -> Exp Bool
+
+type instance Eval (ReorderOk ds xs) =
+  Eval (TyEq (Eval (Rank ds)) (Eval (Rank xs))) &&
+  Eval (And =<< Map (Flip CheckIndex (Eval (Rank ds))) xs)
 
 -- | remove 1's from a list
 --
@@ -844,3 +847,45 @@ type family Windows (ws :: [Nat]) (xs :: [Nat]) where
 
 --     c = List.length xs
 --     df s = List.zipWith (\s' x' -> s' - x' + 1) s xs <> xs <> List.drop c s
+
+-- | Check if i is a valid index of a dimension of length l
+--
+-- >>> checkIndex 0 2
+-- True
+-- >>> checkIndex 2 2
+-- False
+checkIndex :: Int -> Int -> Bool
+checkIndex i n = (zero <= i && i + one <= n)
+
+-- | Check if i is a valid index of a dimension of length l
+-- FIXME: rename to In
+--
+-- >>> :k! Eval (CheckIndex 0 2)
+-- ...
+-- = True
+-- >>> :k! Eval (CheckIndex 2 2)
+-- ...
+-- = False
+data CheckIndex :: Nat -> Nat -> Exp Bool
+
+type instance Eval (CheckIndex x d) =
+  Eval ((Fcf.<) x d)
+
+-- | reverse an index along specific dimensions.
+--
+-- >>> reverseIndex [0] [2,3,4] [0,1,2]
+-- [1,1,2]
+reverseIndex :: [Int] -> [Int] -> [Int] -> [Int]
+reverseIndex ds ns xs = fmap (\(i, x, n) -> bool x (n - 1 - x) (i `elem` ds)) (zip3 [0 ..] xs ns)
+
+-- | rotate an index along specific dimensions.
+--
+-- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
+-- [1,1,2]
+rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
+rotateIndex rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
+
+data EnumFromTo :: Nat -> Nat -> Exp (t Nat)
+
+type instance Eval (EnumFromTo a b) =
+  If (Eval (a Fcf.> b)) '[] (a : Eval (EnumFromTo (a+1) b))

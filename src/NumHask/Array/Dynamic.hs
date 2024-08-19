@@ -810,7 +810,7 @@ append ::
   Array a ->
   Array a ->
   Array a
-append d a b = insert d (S.indexOf d (shape a)) a b
+append d a b = insert d (S.unsafeGetIndex d (shape a)) a b
 
 -- | Insert along a dimension at the beginning.
 --
@@ -956,8 +956,6 @@ slices ::
   Array a ->
   Array a
 slices ps a = dimsWise slice ps a
-
--- * application
 
 -- | Reduce along specified dimensions, using the supplied fold.
 --
@@ -1610,7 +1608,7 @@ concats ::
 concats ds n a = backpermute concatDims unconcatDims a
   where
     concatDims s = S.insertDim n (S.size $ S.takeDims ds s) (S.deleteDims ds s)
-    unconcatDims s = S.insertDims ds (S.shapen (S.takeDims ds (shape a)) (S.indexOf n s)) (S.deleteDim n s)
+    unconcatDims s = S.insertDims ds (S.shapen (S.takeDims ds (shape a)) (S.unsafeGetIndex n s)) (S.deleteDim n s)
 
 -- | Rotate an array along a dimension.
 --
