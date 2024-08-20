@@ -868,8 +868,6 @@ indexes _ xs a = unsafeBackpermute (S.insertDims (List.zip (shapeOf @ds) xs)) a
 
 -- | Select an index /except/ along specified dimensions.
 --
--- >>> 1
--- Fixed indexesExcept
 -- >>> let s = indexesExcept (Proxy :: Proxy '[2]) [1,1] a
 -- >>> :t s
 -- s :: Array '[4] Int
@@ -1046,8 +1044,6 @@ traverses ds f a = joins ds <$> traverse (traverse f) (extracts ds a)
 
 -- | Join inner and outer dimension layers by supplied dimensions. No checks on shape.
 --
--- >>> 1
--- fixed joins
 -- >>> let e = extracts (Proxy :: Proxy [1,0]) a
 -- >>> let j = joins (Proxy :: Proxy [1,0]) e
 -- >>> a == j

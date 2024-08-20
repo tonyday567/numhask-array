@@ -713,7 +713,9 @@ type instance Eval (Foldl' f y (x ': xs)) = Eval (Foldl' f (Eval (f y x)) xs)
 -- >>> insertDims [(1,3), (0,2)] [4]
 -- [2,3,4]
 insertDims :: [(Int,Int)] -> [Int] -> [Int]
-insertDims ps ds = foldr (uncurry insertDim) ds ps
+insertDims ps ds = foldl' (flip (uncurry insertDim)) ds ps'
+  where
+    ps' = zip (preInsertPositions $ fmap fst ps) (fmap snd ps)
 
 type family InsertDims (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
   InsertDims xs ys as = InsertDimsGo (Eval (Reverse (Eval (PreDeletePositions (Eval (Reverse xs)))))) ys as

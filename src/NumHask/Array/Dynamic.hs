@@ -894,8 +894,6 @@ drops ts a = backpermute dsNew (List.zipWith (\d' s' -> bool (d' + s') s' (d' < 
 
 -- | Select by (dimension,index) pairs.
 --
--- >>> 1
--- Dynamic
 -- >>> let s = indexes [(0,1),(1,1)] a
 -- >>> pretty s
 -- [16,17,18,19]
@@ -905,7 +903,7 @@ indexes ::
   Array a
 indexes ps a = backpermute (S.deleteDims ds) (S.insertDims ps) a
   where
-    ds = fmap snd ps
+    ds = fmap fst ps
 
 -- | Select the first element along the supplied dimensions
 --
