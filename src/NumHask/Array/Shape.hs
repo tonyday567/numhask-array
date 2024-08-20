@@ -82,9 +82,9 @@ module NumHask.Array.Shape
     deleteDim,
     DeleteDim,
     preDeletePositions,
+    PreDeletePositions,
     preInsertPositions,
-    PosRelative,
-    DecMap,
+    PreInsertPositions,
     insertDims,
     InsertDims,
     PrependDims,
@@ -610,8 +610,7 @@ data DecAt :: Nat -> t Nat -> Exp (t Nat)
 type instance Eval (DecAt d ds) =
   Eval (ModifyDim d (Flip (Fcf.-) 1) ds)
 
-
--- | Convert a list of position that reference deletions according to a final shape to one that references deletions relative to an initial shape.
+-- | Convert a list of positions that reference deletions according to a final shape to one that references deletions relative to an initial shape.
 --
 -- To delete the positions [1,2,5] from a list, for example, you need to delete position 1, (arriving at a 4 element list), then position 1, arriving at a 3 element list, and finally position 3.
 --
@@ -621,13 +620,39 @@ type instance Eval (DecAt d ds) =
 -- >>> preDeletePositions [1,2,0]
 -- [1,1,0]
 --
--- >>> reverse (preDeletePositions (reverse [1,0]))
--- [0,0]
 preDeletePositions :: [Int] -> [Int]
-preDeletePositions as = reverse (go [] as)
+preDeletePositions as = reverse (go as [])
   where
-    go r [] = r
-    go r (x : xs) = go (x : r) ((\y -> bool (y - one) y (y < x)) <$> xs)
+    go [] r = r
+    go (x : xs) r = go (decPast x <$> xs) (x : r)
+    decPast x y = bool (y - 1) y (y < x)
+
+-- | Convert a list of positions that reference deletions according to a final shape to one that references deletions relative to an initial shape.
+--
+-- To delete the positions [1,2,5] from a list, for example, you need to delete position 1, (arriving at a 4 element list), then position 1, arriving at a 3 element list, and finally position 3.
+--
+-- >>> :k! Eval (PreDeletePositions [1,2,5])
+-- ...
+-- = [1, 1, 3]
+--
+-- >>> :k! Eval (PreDeletePositions [1,2,0])
+-- ...
+-- = [1, 1, 0]
+data PreDeletePositions :: t Nat -> Exp (t Nat)
+
+type instance Eval (PreDeletePositions xs) =
+  Eval (Reverse (Eval (PreDeletePositionsGo xs '[])))
+
+data PreDeletePositionsGo :: t Nat -> t Nat -> Exp (t Nat)
+
+type instance Eval (PreDeletePositionsGo '[] rs) = rs
+type instance Eval (PreDeletePositionsGo (x : xs) r) =
+  Eval (PreDeletePositionsGo (Eval (Map (DecPast x) xs)) (x : r))
+
+data DecPast :: Nat -> Nat -> Exp Nat
+
+type instance Eval (DecPast x d) =
+  If (x + 1 <=? d) (d - 1) d
 
 -- | Convert a list of position that reference insertions according to a final shape to one that references list insertions relative to an initial shape.
 --
@@ -642,16 +667,22 @@ preDeletePositions as = reverse (go [] as)
 preInsertPositions :: [Int] -> [Int]
 preInsertPositions = reverse . preDeletePositions . reverse
 
-type family PosRelative (s :: [Nat]) where
-  PosRelative s = PosRelativeGo s '[]
+-- | Convert a list of position that reference insertions according to a final shape to one that references list insertions relative to an initial shape.
+--
+-- To insert into positions [1,2,0] from a list, starting from a 2 element list, for example, you need to insert at position 0, (arriving at a 3 element list), then position 1, arriving at a 4 element list, and finally position 0.
+--
+-- > preInsertPositions == reverse . preDeletePositions . reverse
+-- >>> :k! Eval (PreInsertPositions [1,2,5])
+-- ...
+-- = [1, 2, 5]
+--
+-- >>> :k! Eval (PreInsertPositions [1,2,0])
+-- ...
+-- = [0, 1, 0]
+data PreInsertPositions :: t Nat -> Exp (t Nat)
 
-type family PosRelativeGo (r :: [Nat]) (s :: [Nat]) where
-  PosRelativeGo '[] r = Eval (Reverse r)
-  PosRelativeGo (x : xs) r = PosRelativeGo (DecMap x xs) (x : r)
-
-type family DecMap (x :: Nat) (ys :: [Nat]) :: [Nat] where
-  DecMap _ '[] = '[]
-  DecMap x (y : ys) = If (y + 1 <=? x) y (y - 1) : DecMap x ys
+type instance Eval (PreInsertPositions xs) =
+  Eval (Reverse =<< (PreDeletePositions =<< (Reverse xs)))
 
 -- | drop dimensions of a shape according to a list of positions (where position refers to the initial shape)
 --
@@ -660,28 +691,32 @@ type family DecMap (x :: Nat) (ys :: [Nat]) :: [Nat] where
 deleteDims :: [Int] -> [Int] -> [Int]
 deleteDims i s = foldl' (flip deleteDim) s (preDeletePositions i)
 
-type family DeleteDims (i :: [Nat]) (s :: [Nat]) where
-  DeleteDims i s = DeleteDimsGo (PosRelative i) s
-
-type family DeleteDimsGo (i :: [Nat]) (s :: [Nat]) where
-  DeleteDimsGo '[] s = s
-  DeleteDimsGo (i : is) s = DeleteDimsGo is (Eval (DeleteDim i s))
-
--- | insert a list of dimensions according to position and dimension lists.  Note that the list of positions references the final shape and not the initial shape.
+-- | drop dimensions of a shape according to a list of positions (where position refers to the initial shape)
 --
--- >>> insertDims [0] [5] []
+-- >>> :k! Eval (DeleteDims [1,0] [2, 3, 4])
+-- ...
+-- = '[4]
+data DeleteDims :: t Nat -> t Nat -> Exp (t Nat)
+
+type instance Eval (DeleteDims xs ds) =
+  Eval (Foldl' (Flip DeleteDim) ds (Eval (PreDeletePositions xs)))
+
+data Foldl' :: (b -> a -> Exp b) -> b -> t a -> Exp b
+
+type instance Eval (Foldl' f y '[]) = y
+type instance Eval (Foldl' f y (x ': xs)) = Eval (Foldl' f (Eval (f y x)) xs)
+
+-- | insert a list of dimensions according to position,dimension tuple lists.  Note that the list of positions references the final shape and not the initial shape.
+--
+-- >>> insertDims [(0,5)] []
 -- [5]
--- >>> insertDims [1,0] [3,2] [4]
+-- >>> insertDims [(1,3), (0,2)] [4]
 -- [2,3,4]
-insertDims :: [Int] -> [Int] -> [Int] -> [Int]
-insertDims xs ys as = insertDimsGo (preInsertPositions xs) ys as
-  where
-    insertDimsGo [] _ as' = as'
-    insertDimsGo (x : xs') (y : ys') as' = insertDimsGo xs' ys' (insertDim x y as')
-    insertDimsGo _ _ _ = throw (NumHaskException "mismatched ranks")
+insertDims :: [(Int,Int)] -> [Int] -> [Int]
+insertDims ps ds = foldr (uncurry insertDim) ds ps
 
 type family InsertDims (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
-  InsertDims xs ys as = InsertDimsGo (Eval (Reverse (PosRelative (Eval (Reverse xs))))) ys as
+  InsertDims xs ys as = InsertDimsGo (Eval (Reverse (Eval (PreDeletePositions (Eval (Reverse xs)))))) ys as
 
 type family InsertDimsGo (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
   InsertDimsGo '[] _ as' = as'

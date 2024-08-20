@@ -76,6 +76,7 @@ module NumHask.Array.Fixed
     take,
     slice,
     insert,
+    delete,
 
     -- * Operators
     takes,
@@ -789,6 +790,28 @@ insert _ i a b = tabulate go
       where xs' = fromFins xs
     d = valueOf @d
 
+-- | Delete along a dimension at a position.
+--
+-- >>> pretty $ delete (Proxy :: Proxy 2) 0 a
+-- [[[0,1,2],
+--   [4,5,6],
+--   [8,9,10]],
+--  [[12,13,14],
+--   [16,17,18],
+--   [20,21,22]]]
+delete ::
+  forall d s s' a.
+  (HasShape s,
+   HasShape (Eval (AsSingleton s)),
+   HasShape s',
+   KnownNat d,
+   s' ~ Eval (DecAt d s)) =>
+  Proxy d ->
+  Int ->
+  Array s a ->
+  Array s' a
+delete _ i a = unsafeBackpermute (\s -> bool s (S.incAt (valueOf @d) s) (s !! (valueOf @d) < i)) (asSingleton a)
+
 -- | Takes the top-most elements according to the new dimensions.
 --
 -- >>> pretty (takes @[1,2,2] a)
@@ -828,23 +851,25 @@ drops a = unsafeBackpermute (List.zipWith (+) xs) a
 
 -- | Select by (dimension,index) pairs.
 --
--- >>> pretty $ indexes (Proxy :: Proxy '[0,1]) [1,1] a
+-- > pretty $ indexes (Proxy :: Proxy '[0,1]) [1,1] a
 -- [16,17,18,19]
 indexes ::
   forall ds s s' a.
   ( HasShape s,
     HasShape ds,
     HasShape s',
-    s' ~ DeleteDims ds s
+    s' ~ Eval (DeleteDims ds s)
   ) =>
   Proxy ds ->
   [Int] ->
   Array s a ->
   Array s' a
-indexes _ xs a = unsafeBackpermute (S.insertDims (shapeOf @ds) xs) a
+indexes _ xs a = unsafeBackpermute (S.insertDims (List.zip (shapeOf @ds) xs)) a
 
 -- | Select an index /except/ along specified dimensions.
 --
+-- >>> 1
+-- Fixed indexesExcept
 -- >>> let s = indexesExcept (Proxy :: Proxy '[2]) [1,1] a
 -- >>> :t s
 -- s :: Array '[4] Int
@@ -862,13 +887,13 @@ indexesExcept ::
   [Int] ->
   Array s a ->
   Array s' a
-indexesExcept _ i a = unsafeBackpermute (\s -> insertDims (shapeOf @ds) s i) a
+indexesExcept _ i a = unsafeBackpermute (\s -> insertDims (List.zip (shapeOf @ds) s) i) a
 
 -- | Select the first element along the supplied dimensions
 --
 -- >>> pretty $ heads (Proxy :: Proxy '[0,2]) a
 -- [0,4,8]
-heads :: forall a ds s s'. (HasShape s, HasShape s', HasShape ds, s' ~ DeleteDims ds s) => Proxy ds -> Array s a -> Array s' a
+heads :: forall a ds s s'. (HasShape s, HasShape s', HasShape ds, s' ~ Eval (DeleteDims ds s)) => Proxy ds -> Array s a -> Array s' a
 heads xs a = indexes xs (replicate (rankOf @s) zero) a
 
 -- | Select the last element along the supplied dimensions
@@ -880,7 +905,7 @@ lasts ::
   ( HasShape s,
     HasShape ds,
     HasShape s',
-    s' ~ DeleteDims ds s
+    s' ~ Eval (DeleteDims ds s)
   ) =>
   Proxy ds ->
   Array s a ->
@@ -902,7 +927,7 @@ tails ::
     HasShape ds,
     HasShape s',
     HasShape ls,
-    s' ~ DeleteDims ds s,
+    s' ~ Eval (DeleteDims ds s),
     s' ~ ReplaceDims ds ls s
   ) =>
   Proxy ds ->
@@ -949,7 +974,7 @@ extracts ::
     HasShape ds,
     HasShape si,
     HasShape so,
-    si ~ DeleteDims ds st,
+    si ~ Eval (DeleteDims ds st),
     so ~ TakeDims ds st
   ) =>
   Proxy ds ->
@@ -968,7 +993,7 @@ extractsExcept ::
     HasShape ds,
     HasShape si,
     HasShape so,
-    so ~ DeleteDims ds st,
+    so ~ Eval (DeleteDims ds st),
     si ~ TakeDims ds st
   ) =>
   Proxy ds ->
@@ -992,7 +1017,7 @@ reduces ::
     HasShape ds,
     HasShape si,
     HasShape so,
-    si ~ DeleteDims ds st,
+    si ~ Eval (DeleteDims ds st),
     so ~ TakeDims ds st
   ) =>
   Proxy ds ->
@@ -1008,9 +1033,9 @@ traverses ::
   (Applicative f,
    HasShape s,
    HasShape s',
-   s' ~ InsertDims ds (TakeDims ds s) (DeleteDims ds s),
-   HasShape (InsertDims ds (TakeDims ds s) (DeleteDims ds s)),
-   HasShape (DeleteDims ds s),
+   s' ~ InsertDims ds (TakeDims ds s) (Eval (DeleteDims ds s)),
+   HasShape (InsertDims ds (TakeDims ds s) (Eval (DeleteDims ds s))),
+   HasShape (Eval (DeleteDims ds s)),
    HasShape (TakeDims ds s),
    HasShape ds) =>
   Proxy ds ->
@@ -1021,6 +1046,8 @@ traverses ds f a = joins ds <$> traverse (traverse f) (extracts ds a)
 
 -- | Join inner and outer dimension layers by supplied dimensions. No checks on shape.
 --
+-- >>> 1
+-- fixed joins
 -- >>> let e = extracts (Proxy :: Proxy [1,0]) a
 -- >>> let j = joins (Proxy :: Proxy [1,0]) e
 -- >>> a == j
@@ -1069,7 +1096,7 @@ maps ::
     HasShape si,
     HasShape si',
     HasShape so,
-    si ~ DeleteDims ds st,
+    si ~ Eval (DeleteDims ds st),
     so ~ TakeDims ds st,
     st' ~ InsertDims ds so si',
     st ~ InsertDims ds so si
@@ -1089,7 +1116,7 @@ filters ::
   ( HasShape ds,
     HasShape si,
     HasShape so,
-    si ~ DeleteDims ds so,
+    si ~ Eval (DeleteDims ds so),
     HasShape (TakeDims ds so)
   ) =>
   Proxy ds ->
@@ -1115,7 +1142,7 @@ zips ::
     HasShape si,
     HasShape si',
     HasShape so,
-    si ~ DeleteDims ds st,
+    si ~ Eval (DeleteDims ds st),
     so ~ TakeDims ds st,
     st' ~ InsertDims ds so si',
     st ~ InsertDims ds so si
@@ -1210,7 +1237,7 @@ contract ::
     HasShape ds,
     HasShape ss,
     HasShape s',
-    s' ~ DeleteDims ds s,
+    s' ~ Eval (DeleteDims ds s),
     ss ~ '[Eval (Minimum (TakeDims ds s))]
   ) =>
   (Array ss a -> b) ->
@@ -1254,7 +1281,7 @@ dot ::
     KnownNat (Eval (Rank sa)),
     ss ~ '[Eval (Minimum se)],
     HasShape ss,
-    s' ~ DeleteDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (Eval ((++) sa sb)),
+    s' ~ Eval (DeleteDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (Eval ((++) sa sb))),
     HasShape s'
   ) =>
   (Array ss c -> d) ->
@@ -1300,7 +1327,7 @@ mult ::
     KnownNat (Eval (Rank sa)),
     ss ~ '[Eval (Minimum se)],
     HasShape ss,
-    s' ~ DeleteDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (Eval ((++) sa sb)),
+    s' ~ Eval (DeleteDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (Eval ((++) sa sb))),
     HasShape s'
   ) =>
   Array sa a ->
@@ -1357,7 +1384,7 @@ reorder ::
   Proxy dims ->
   Array s a ->
   Array s' a
-reorder _ a = unsafeBackpermute (\s -> S.insertDims (shapeOf @dims) s []) a
+reorder _ a = unsafeBackpermute (\s -> S.insertDims (List.zip (shapeOf @dims) s) []) a
 
 -- | Remove single dimensions.
 --

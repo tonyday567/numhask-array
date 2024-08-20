@@ -894,6 +894,8 @@ drops ts a = backpermute dsNew (List.zipWith (\d' s' -> bool (d' + s') s' (d' < 
 
 -- | Select by (dimension,index) pairs.
 --
+-- >>> 1
+-- Dynamic
 -- >>> let s = indexes [(0,1),(1,1)] a
 -- >>> pretty s
 -- [16,17,18,19]
@@ -901,10 +903,9 @@ indexes ::
   [(Int, Int)] ->
   Array a ->
   Array a
-indexes ds a = backpermute (S.deleteDims ds') (S.insertDims ds' xs) a
+indexes ps a = backpermute (S.deleteDims ds) (S.insertDims ps) a
   where
-    ds' = fmap fst ds
-    xs = fmap snd ds
+    ds = fmap snd ps
 
 -- | Select the first element along the supplied dimensions
 --
@@ -1017,7 +1018,7 @@ joins ::
   [Int] ->
   Array (Array a) ->
   Array a
-joins ds a = tabulate (S.insertDims ds so si) go
+joins ds a = tabulate (S.insertDims (List.zip ds so) si) go
   where
     go s = index (index a (S.takeDims ds s)) (S.deleteDims ds s)
     so = shape a
@@ -1519,7 +1520,7 @@ reorder ::
   [Int] ->
   Array a ->
   Array a
-reorder ds a = backpermute (`S.reorder` ds) (\s -> S.insertDims ds s []) a
+reorder ds a = backpermute (`S.reorder` ds) (\s -> S.insertDims (List.zip ds s) []) a
 
 -- | Remove single dimensions.
 --
@@ -1608,7 +1609,7 @@ concats ::
 concats ds n a = backpermute concatDims unconcatDims a
   where
     concatDims s = S.insertDim n (S.size $ S.takeDims ds s) (S.deleteDims ds s)
-    unconcatDims s = S.insertDims ds (S.shapen (S.takeDims ds (shape a)) (S.unsafeGetIndex n s)) (S.deleteDim n s)
+    unconcatDims s = S.insertDims (List.zip ds (S.shapen (S.takeDims ds (shape a)) (S.unsafeGetIndex n s))) (S.deleteDim n s)
 
 -- | Rotate an array along a dimension.
 --
