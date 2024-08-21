@@ -891,7 +891,6 @@ drops ts a = backpermute dsNew (List.zipWith (\d' s' -> bool (d' + s') s' (d' < 
     xs = fmap snd ts
     xsAbs = fmap abs xs
 
-
 -- | Select by (dimension,index) pairs.
 --
 -- >>> let s = indexes [(0,1),(1,1)] a
@@ -1292,11 +1291,7 @@ mult = dot sum (*)
 -- >>> D.shape $ D.windows [2,2] (D.range [4,3,2])
 -- [3,2,2,2,2]
 windows :: [Int] -> Array a -> Array a
-windows xs a = backpermute df wf a
-  where
-    c = List.length xs
-    df s = List.zipWith (\s' x' -> s' - x' + 1) s xs <> xs <> List.drop c s
-    wf s = List.zipWith (+) (List.take c s) (List.take c (List.drop c s)) <> List.drop (c + c) s
+windows xs a = backpermute (S.expandWindows xs) (S.indexWindows (S.rank xs)) a
 
 -- * search
 

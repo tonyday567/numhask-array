@@ -30,9 +30,7 @@
 
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
-  ( KnownNats (..),
-    KnownNatss (..),
-    valueOf,
+  ( valueOf,
     Shape (..),
     HasShape (..),
     shapeOf,
@@ -56,7 +54,6 @@ module NumHask.Array.Shape
     UnsafeGetIndex,
     rotate,
     type (++),
-    type (!!),
     Take,
     Drop,
     Reverse,
@@ -73,12 +70,14 @@ module NumHask.Array.Shape
     ModifyDim,
     replaceDim,
     ReplaceDim,
+    ReplaceDimUncurried,
     incAt,
     IncAt,
     decAt,
     DecAt,
     insertDim,
     InsertDim,
+    InsertDimUncurried,
     deleteDim,
     DeleteDim,
     preDeletePositions,
@@ -87,7 +86,7 @@ module NumHask.Array.Shape
     PreInsertPositions,
     insertDims,
     InsertDims,
-    PrependDims,
+    InsertDimsHelper,
     replaceDims,
     ReplaceDims,
     modifyDims,
@@ -97,20 +96,17 @@ module NumHask.Array.Shape
     TakeDims,
     exclude,
     Exclude,
-    Enumerate,
-    EnumerateGo,
     concatenate,
     Concatenate,
-    CheckConcatenate,
-    Insert,
-    CheckInsert,
+    ConcatenateOk,
     reorder,
     Reorder,
     ReorderOk,
     squeeze,
     Squeeze,
-    Zip,
-    Windows,
+    expandWindows,
+    indexWindows,
+    ExpandWindows,
     Fcf.Eval,
 
     -- * Assertions
@@ -120,6 +116,10 @@ module NumHask.Array.Shape
     -- * index-only operations
     reverseIndex,
     rotateIndex,
+
+    -- * combinators
+    EnumFromTo,
+    Foldl',
   )
 where
 
@@ -171,6 +171,8 @@ valueOf = Prelude.fromIntegral $ natVal (Proxy :: Proxy n)
 -- Shape {shapeVal = [2,3,4]}
 --
 -- A 'Shape' most often represents the dimensions of a hyper-rectangular dense array.
+--
+-- This could also be called KnownNats
 newtype Shape (s :: [Nat]) = Shape {shapeVal :: [Int]} deriving (Show)
 
 class HasShape s where
@@ -190,7 +192,7 @@ shapeOf :: forall s. (HasShape s) => [Int]
 shapeOf = shapeVal (toShape @s)
 {-# INLINE shapeOf #-}
 
--- | The length of a 'Shape'.
+-- | The rank of a 'Shape'.
 --
 -- >>> rankOf @[2,3,4]
 -- 3
@@ -520,16 +522,16 @@ data DeleteDim :: Nat -> [Nat] -> Exp [Nat]
 type instance Eval (DeleteDim i ds) =
   Eval (LiftM2 (Fcf.++) (Take i ds) (Drop (i + 1) ds))
 
--- | /insertDim i d s/ inserts a new dimension to shape /s/ at position /i/
+-- | /insertDim d i s/ inserts a new dimension to shape /s/ at position /i/
 --
 -- >>> insertDim 1 3 [2,4]
 -- [2,3,4]
 -- >>> insertDim 0 4 []
 -- [4]
 insertDim :: Int -> Int -> [Int] -> [Int]
-insertDim i d s = take i s ++ (d : drop i s)
+insertDim d i s = take d s ++ (i : drop d s)
 
--- | /insertDim i d s/ inserts a new dimension to shape /s/ at position /i/
+-- | /insertDim d i s/ inserts a new dimension to shape /s/ at position /i/
 --
 -- >>> :k! Eval (InsertDim 1 3 [2,4])
 -- ...
@@ -539,8 +541,13 @@ insertDim i d s = take i s ++ (d : drop i s)
 -- = '[4]
 data InsertDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
 
-type instance Eval (InsertDim i d ds) =
-  Eval (Eval (Take i ds) Fcf.++ (d ': Eval (Drop i ds)))
+type instance Eval (InsertDim d i ds) =
+  Eval (Eval (Take d ds) Fcf.++ (i ': Eval (Drop d ds)))
+
+data InsertDimUncurried :: (Nat,Nat) -> [Nat] -> Exp [Nat]
+
+type instance Eval (InsertDimUncurried xs ds) =
+  Eval (Eval (Take (Eval (Fst xs)) ds) Fcf.++ ((Eval (Snd xs)) ': Eval (Drop (Eval (Fst xs)) ds)))
 
 -- | modify an index at a specific dimension. Unmodified if out of bounds.
 --
@@ -575,6 +582,11 @@ data ReplaceDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
 
 type instance Eval (ReplaceDim d x ds) =
   Eval (SetIndex d x ds)
+
+data ReplaceDimUncurried :: (Nat,Nat) -> [Nat] -> Exp [Nat]
+
+type instance Eval (ReplaceDimUncurried xs ds) =
+  Eval (SetIndex (Eval (Fst xs)) (Eval (Snd xs)) ds)
 
 -- | Increment the index at a dimension of a shape by one.
 --
@@ -701,12 +713,7 @@ data DeleteDims :: t Nat -> t Nat -> Exp (t Nat)
 type instance Eval (DeleteDims xs ds) =
   Eval (Foldl' (Flip DeleteDim) ds (Eval (PreDeletePositions xs)))
 
-data Foldl' :: (b -> a -> Exp b) -> b -> t a -> Exp b
-
-type instance Eval (Foldl' f y '[]) = y
-type instance Eval (Foldl' f y (x ': xs)) = Eval (Foldl' f (Eval (f y x)) xs)
-
--- | insert a list of dimensions according to position,dimension tuple lists.  Note that the list of positions references the final shape and not the initial shape.
+-- | insert a list of dimensions according to dimension,position tuple lists.  Note that the list of positions references the final shape and not the initial shape.
 --
 -- >>> insertDims [(0,5)] []
 -- [5]
@@ -717,16 +724,23 @@ insertDims ps ds = foldl' (flip (uncurry insertDim)) ds ps'
   where
     ps' = zip (preInsertPositions $ fmap fst ps) (fmap snd ps)
 
-type family InsertDims (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
-  InsertDims xs ys as = InsertDimsGo (Eval (Reverse (Eval (PreDeletePositions (Eval (Reverse xs)))))) ys as
+-- | insert a list of dimensions according to dimension,position tuple lists.  Note that the list of positions references the final shape and not the initial shape.
+--
+-- >>> :k! Eval (InsertDims '[ '(0,5)] '[])
+-- ...
+-- = '[5]
+-- >>> :k! Eval (InsertDims '[ '(1, 3), '(0, 2)] '[4])
+-- ...
+-- = [2, 3, 4]
+data InsertDims :: t (Nat, Nat) -> t Nat -> Exp (t Nat)
 
-type family InsertDimsGo (xs :: [Nat]) (ys :: [Nat]) (as :: [Nat]) where
-  InsertDimsGo '[] _ as' = as'
-  InsertDimsGo (x : xs') (y : ys') as' = InsertDimsGo xs' ys' (Eval (InsertDim x y as'))
-  InsertDimsGo _ _ _ = L.TypeError ('Text "mismatched ranks")
+type instance Eval (InsertDims ps ds) =
+  Eval (Foldl' (Flip InsertDimUncurried) ds (Eval (InsertDimsHelper ps)))
 
-type family PrependDims (ys :: [Nat]) (as :: [Nat]) where
-  PrependDims (y : ys) as = PrependDims ys (y : as)
+data InsertDimsHelper :: t (Nat, Nat) -> Exp (t (Nat, Nat))
+
+type instance Eval (InsertDimsHelper ps) =
+  Eval (Zip (Eval (PreInsertPositions (Eval (Map Fst ps)))) (Eval (Map Snd ps)))
 
 -- | replace indexes with a new value according to a dimension list.
 --
@@ -738,10 +752,21 @@ type family PrependDims (ys :: [Nat]) (as :: [Nat]) where
 replaceDims :: [Int] -> [Int] -> [Int] -> [Int]
 replaceDims ds xs ns = foldl' (\ns' (d, x) -> replaceDim d x ns') ns (zip ds xs)
 
-type family ReplaceDims (ds :: [Nat]) (rs :: [Nat]) (as :: [Nat]) where
-  ReplaceDims '[] _ as' = as'
-  ReplaceDims (x : xs') (y : ys') as' = ReplaceDims xs' ys' (Eval (InsertDim x y as'))
-  ReplaceDims _ _ _ = L.TypeError ('Text "mismatched ranks")
+-- | replace indexes with a new value according to a dimension list.
+--
+-- FIXME: Why is this different to value-level result?
+--
+-- >>> :k! Eval (ReplaceDims [0,1] [1,5] [2,3,4])
+-- ...
+-- = [1, 5, 4]
+--
+-- >>> :k! Eval (ReplaceDims '[0] '[3] '[])
+-- ...
+-- = '[]
+data ReplaceDims :: t Nat -> t Nat -> t Nat -> Exp (t Nat)
+
+type instance Eval (ReplaceDims ds xs ns) =
+  Eval (Foldl' (Flip ReplaceDimUncurried) ns (Eval (Zip ds xs)))
 
 -- | modify indexes with (separate) functions according to a dimension list.
 --
@@ -750,43 +775,45 @@ type family ReplaceDims (ds :: [Nat]) (rs :: [Nat]) (as :: [Nat]) where
 modifyDims :: [Int] -> [Int -> Int] -> [Int] -> [Int]
 modifyDims ds fs ns = foldl' (\ns' (d, f) -> modifyDim d f ns') ns (zip ds fs)
 
--- | take dimensions by index.
+-- | Take dimensions by index.
 --
 -- >>> takeDims [2,0] [2,3,4]
 -- [4,2]
--- >>> S.takeDims [2] []
+-- >>> takeDims [2] []
 -- []
 takeDims :: [Int] -> [Int] -> [Int]
 takeDims _ [] = []
 takeDims i s = (s List.!!) <$> i
 
-type family TakeDims (i :: [Nat]) (s :: [Nat]) where
-  TakeDims '[] _ = '[]
-  TakeDims _ '[] = '[]
-  TakeDims (i : is) s =
-    (s !! i) ': TakeDims is s
+-- | Take dimensions by index.
+--
+-- >>> :k! Eval (TakeDims [2,0] [2,3,4])
+-- ...
+-- = [4, 2]
+-- >>> :k! Eval (TakeDims '[2] '[])
+-- ...
+-- = '[(TypeError ...)]
+data TakeDims :: t Nat -> t Nat -> Exp (t Nat)
 
-type family (a :: [k]) !! (b :: Nat) :: k where
-  (!!) '[] _ = L.TypeError ('Text "Index Underflow")
-  (!!) (x : _) 0 = x
-  (!!) (_ : xs) i = (!!) xs (i - 1)
+type instance Eval (TakeDims xs ds) =
+  Eval (Map (Flip UnsafeGetIndex ds) xs)
 
-type family Enumerate (n :: Nat) where
-  Enumerate n = Reverse (EnumerateGo n)
-
-type family EnumerateGo (n :: Nat) where
-  EnumerateGo 0 = '[]
-  EnumerateGo n = (n - 1) : EnumerateGo (n - 1)
-
--- | turn a list of included positions for a given rank into a list of excluded positions
+-- | Turn a list of included positions for a given rank into a list of excluded positions
 --
 -- >>> exclude 3 [1,2]
 -- [0]
 exclude :: Int -> [Int] -> [Int]
 exclude r xs = deleteDims xs [0 .. (r - 1)]
 
-type family Exclude (r :: Nat) (i :: [Nat]) where
-  Exclude r i = DeleteDims (EnumerateGo r) i
+-- | Turn a list of included positions for a given rank into a list of excluded positions
+--
+-- > :k! Eval (Exclude 3 [1,2])
+-- ...
+-- = '[0]
+data Exclude :: Nat -> t Nat -> Exp (t Nat)
+
+type instance Eval (Exclude r xs) =
+  Eval (DeleteDims (Eval (EnumFromTo 0 (Eval ((Fcf.-) r 1)))) xs)
 
 -- | concatenate two arrays at dimension i
 --
@@ -806,21 +833,22 @@ concatenate _ [] [x] = [x + 1]
 concatenate _ [x] [] = [x + 1]
 concatenate i s0 s1 = take i s0 ++ (unsafeGetIndex i s0 + unsafeGetIndex i s1 : drop (i + 1) s0)
 
-type Concatenate i s0 s1 = Eval (Take i s0) ++ (Eval (UnsafeGetIndex i s0) + Eval (UnsafeGetIndex i s1) : Eval (Drop (i + 1) s0))
+data Concatenate :: Nat -> t Nat -> t Nat -> Exp (t Nat)
 
-type CheckConcatenate i s0 s1 s =
-  ( Eval (CheckIndex i (Eval (Rank s0)))
-      && DeleteDim i s0 == DeleteDim i s1
-      && Rank s0 == Rank s1
-  )
-    ~ 'True
+type instance Eval (Concatenate i s0 s1) =
+  If (Eval (ConcatenateOk i s0 s1))
+    (Eval (Eval (Take i s0) ++ (Eval (UnsafeGetIndex i s0) + Eval (UnsafeGetIndex i s1) : Eval (Drop (i + 1) s0))))
+    (L.TypeError (L.Text "Concatenate Mis-matched shapes."))
 
-type CheckInsert d i s =
-  (Eval (CheckIndex d (Eval (Rank s))) && Eval (CheckIndex i (Eval (UnsafeGetIndex d s)))) ~ 'True
+-- | Concatenate is Ok if ranks are the same and the non-indexed portion of the shapes are the same.
+data ConcatenateOk :: Nat -> t Nat -> t Nat -> Exp Bool
 
-type Insert d s = Eval (Take d s) ++ (Eval (UnsafeGetIndex d s) + 1 : Eval (Drop (d + 1) s))
+type instance Eval (ConcatenateOk i s0 s1) =
+  Eval (CheckIndex i (Eval (Rank s0)))
+      && Eval (TyEq (Eval (DeleteDim i s0)) (Eval (DeleteDim i s1)))
+      && Eval (TyEq (Eval (Rank s0)) (Eval (Rank s1)))
 
--- | /reorder s i/ reorders the dimensions of shape /s/ according to a list of positions /i/
+-- | Reorder the dimensions of shape according to a list of positions.
 --
 -- >>> reorder [2,3,4] [2,0,1]
 -- [4,2,3]
@@ -829,6 +857,11 @@ reorder [] _ = []
 reorder _ [] = []
 reorder s (d : ds) = unsafeGetIndex d s : reorder s ds
 
+-- | Reorder the dimensions of shape according to a list of positions.
+--
+-- >>> :k! Eval (Reorder [2,3,4] [2,0,1])
+-- ...
+-- = [4, 2, 3]
 data Reorder :: t Nat -> t Nat -> Exp (t Nat)
 
 type instance Eval (Reorder ds xs) =
@@ -859,31 +892,30 @@ data Squeeze :: [a] -> Exp [a]
 type instance Eval (Squeeze xs) =
   Eval (Filter (Not <=< TyEq 1) xs)
 
--- | Reflect a list of Nats
-class KnownNats (ns :: [Nat]) where
-  natVals :: Proxy ns -> [Int]
 
-instance KnownNats '[] where
-  natVals _ = []
+-- | Expanded shape of a windowed array
+--
+-- >>> expandWindows [2,2] [4,3,2]
+-- [3,2,2,2,2]
+expandWindows :: [Int] -> [Int] -> [Int]
+expandWindows ws ds = List.zipWith (\s' x' -> s' - x' + 1) ds ws <> ws <> List.drop (rank ws) ds
 
-instance (KnownNat n, KnownNats ns) => KnownNats (n : ns) where
-  natVals _ = (Prelude.fromIntegral $ natVal (Proxy @n)) : natVals (Proxy @ns)
+-- | Expanded shape of a windowed array
+--
+-- >>> :k! Eval (ExpandWindows [2,2] [4,3,2])
+-- ...
+-- = [3, 2, 2, 2, 2]
+data ExpandWindows :: [Nat] -> [Nat] -> Exp [Nat]
 
--- | Reflect a list of list of Nats
-class KnownNatss (ns :: [[Nat]]) where
-  natValss :: Proxy ns -> [[Int]]
+type instance Eval (ExpandWindows ws ds) =
+  Eval (Eval (ZipWith (Fcf.-) (Eval (Map ((Fcf.+) 1) ds)) ws) ++ Eval (ws ++ Eval (Drop (Eval (Rank ws)) ds)))
 
-instance KnownNatss '[] where
-  natValss _ = []
-
-instance (KnownNats n, KnownNatss ns) => KnownNatss (n : ns) where
-  natValss _ = natVals (Proxy @n) : natValss (Proxy @ns)
-
-type family Windows (ws :: [Nat]) (xs :: [Nat]) where
-  Windows ws _ = ws
-
---     c = List.length xs
---     df s = List.zipWith (\s' x' -> s' - x' + 1) s xs <> xs <> List.drop c s
+-- | Index into windows of an expanded windowed array, given a rank ofthe windows.
+--
+-- >>> indexWindows 2 [0,1,2,1,1]
+-- [2,2,1]
+indexWindows :: Int -> [Int] -> [Int]
+indexWindows r ds = List.zipWith (+) (List.take r ds) (List.take r (List.drop r ds)) <> List.drop (r + r) ds
 
 -- | Check if i is a valid index of a dimension of length l
 --
@@ -922,7 +954,27 @@ reverseIndex ds ns xs = fmap (\(i, x, n) -> bool x (n - 1 - x) (i `elem` ds)) (z
 rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
 rotateIndex rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
 
-data EnumFromTo :: Nat -> Nat -> Exp (t Nat)
+-- | Enumerate between two Nats
+--
+-- >>> :k! Eval (EnumFromTo 0 3)
+-- ...
+-- = [0, 1, 2, 3]
+data EnumFromTo :: Nat -> Nat -> Exp [Nat]
 
-type instance Eval (EnumFromTo a b) =
-  If (Eval (a Fcf.> b)) '[] (a : Eval (EnumFromTo (a+1) b))
+type instance Eval (EnumFromTo a b) = Eval (Unfoldr (EnumFromToHelper b) a)
+
+data EnumFromToHelper :: Nat -> Nat -> Exp (Maybe (a, Nat))
+type instance Eval (EnumFromToHelper b a) =
+  If (Eval (a Fcf.> b))
+    'Nothing
+    ('Just '(a, a+1))
+
+-- | Left fold.
+--
+-- >>> :k! Eval (Foldl' (Fcf.+) 0 [1,2,3])
+-- ...
+-- = 6
+data Foldl' :: (b -> a -> Exp b) -> b -> t a -> Exp b
+
+type instance Eval (Foldl' f y '[]) = y
+type instance Eval (Foldl' f y (x ': xs)) = Eval (Foldl' f (Eval (f y x)) xs)
