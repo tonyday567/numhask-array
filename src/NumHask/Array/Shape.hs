@@ -60,6 +60,7 @@ module NumHask.Array.Shape
     Filter,
     rank,
     Rank,
+    Range,
     rerank,
     size,
     Size,
@@ -89,11 +90,15 @@ module NumHask.Array.Shape
     InsertDimsHelper,
     replaceDims,
     ReplaceDims,
+    replaceDimsT,
+    ReplaceDimsT,
     modifyDims,
     deleteDims,
     DeleteDims,
     takeDims,
     TakeDims,
+    dropDims,
+    DropDims,
     exclude,
     Exclude,
     concatenate,
@@ -259,6 +264,17 @@ data Rank :: t a -> Exp Natural
 
 type instance Eval (Rank xs) =
   Eval (Length xs)
+
+-- | Enumerate a range of rank n
+--
+-- FIXME: works in ghci
+-- >> :k! Eval (Range 3)
+-- ...
+-- = [0, 1, 2]
+data Range :: Nat -> Exp [Nat]
+
+type instance Eval (Range x) =
+  Eval (EnumFromTo 0 (Eval ((Fcf.-) x 1)))
 
 -- | Create a new rank by adding ones to the left, if the new rank is greater, or combining dimensions (from left to right) into rows, if the new rank is lower.
 --
@@ -768,6 +784,30 @@ data ReplaceDims :: t Nat -> t Nat -> t Nat -> Exp (t Nat)
 type instance Eval (ReplaceDims ds xs ns) =
   Eval (Foldl' (Flip ReplaceDimUncurried) ns (Eval (Zip ds xs)))
 
+-- | replace indexes dimension,value tuple list.
+--
+-- >>> replaceDimsT [(0,1),(1,5)] [2,3,4]
+-- [1,5,4]
+--
+-- >>> replaceDimsT [(0,3)] []
+-- [3]
+replaceDimsT :: [(Int, Int)] -> [Int] -> [Int]
+replaceDimsT ts ns = foldl' (\ns' (d, x) -> replaceDim d x ns') ns ts
+
+-- | replace indexes with a new value according to a dimension list.
+--
+-- >>> :k! Eval (ReplaceDims [0,1] [1,5] [2,3,4])
+-- ...
+-- = [1, 5, 4]
+--
+-- >>> :k! Eval (ReplaceDims '[0] '[3] '[])
+-- ...
+-- = '[]
+data ReplaceDimsT :: t (Nat,Nat) -> t Nat -> Exp (t Nat)
+
+type instance Eval (ReplaceDimsT ts ns) =
+  Eval (Foldl' (Flip ReplaceDimUncurried) ns ts)
+
 -- | modify indexes with (separate) functions according to a dimension list.
 --
 -- >>> modifyDims [0,1] [(+1), (+5)] [2,3,4]
@@ -798,6 +838,26 @@ data TakeDims :: t Nat -> t Nat -> Exp (t Nat)
 type instance Eval (TakeDims xs ds) =
   Eval (Map (Flip UnsafeGetIndex ds) xs)
 
+-- | Compute new size given a drop,n tuple list
+--
+-- >>> dropDims [(0,1),(2,3)] [2,3,4]
+-- [1,3,1]
+dropDims :: [(Int, Int)] -> [Int] -> [Int]
+dropDims ts ds = replaceDimsT ts' ds
+  where
+    xs' = zipWith (-) (takeDims (fmap fst ts) ds) (fmap snd ts)
+    ts' = zip (fmap fst ts) xs'
+
+-- | Compute new size given a drop,n tuple list
+--
+-- >>> :k! Eval (DropDims [ '(0,1), '(2,3)] [2,3,4])
+-- ...
+-- = [1, 3, 1]
+data DropDims :: [(Nat,Nat)] -> [Nat] -> Exp [Nat]
+
+type instance Eval (DropDims ts ds) =
+  Eval (ReplaceDimsT (Eval (Zip (Eval (Map Fst ts)) (Eval (ZipWith (Fcf.-) (Eval (TakeDims (Eval (Map Fst ts)) ds)) (Eval (Map Snd ts)))))) ds)
+
 -- | Turn a list of included positions for a given rank into a list of excluded positions
 --
 -- >>> exclude 3 [1,2]
@@ -814,6 +874,7 @@ data Exclude :: Nat -> t Nat -> Exp (t Nat)
 
 type instance Eval (Exclude r xs) =
   Eval (DeleteDims (Eval (EnumFromTo 0 (Eval ((Fcf.-) r 1)))) xs)
+
 
 -- | concatenate two arrays at dimension i
 --

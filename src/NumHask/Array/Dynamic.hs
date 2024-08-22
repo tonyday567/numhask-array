@@ -50,6 +50,7 @@ module NumHask.Array.Dynamic
     -- * Creation
     empty,
     range,
+    iota,
     indices,
     ident,
     konst,
@@ -83,7 +84,9 @@ module NumHask.Array.Dynamic
     slice,
 
     -- ** Selection
+    takeDs,
     takes,
+    dropDs,
     drops,
     indexes,
     heads,
@@ -93,14 +96,14 @@ module NumHask.Array.Dynamic
     slices,
 
     -- ** Function application
-    reduces,
-    traverses,
     extracts,
     extractsExcept,
+    reduces,
     joins,
     joinsSafe,
     join,
     joinSafe,
+    traverses,
     maps,
     filters,
     zips,
@@ -172,6 +175,7 @@ module NumHask.Array.Dynamic
     invtri,
     inverse,
     chol,
+
   )
 where
 
@@ -532,6 +536,13 @@ empty = array [0] []
 range :: [Int] -> Array Int
 range xs = tabulate xs (S.flatten xs)
 
+-- | Vector specialisation of 'range'
+--
+-- >>> iota 5
+-- UnsafeArray [5] [0,1,2,3,4]
+iota :: Int -> Array Int
+iota n = range [n]
+
 -- | Indices of an array shape.
 --
 -- >>> pretty $ indices [3,3]
@@ -856,24 +867,50 @@ slice d (o, l) a = backpermute (S.replaceDim d l) (S.modifyDim d (+ o)) a
 
 -- * multi-dimension operators
 
--- | Takes the top-most elements across the supplied dimensions. Negative values take the bottom-most.
+-- | Takes the top-most elements across all dimensions. Negative values take the bottom-most.
+--
+-- > takeDs == rowWise take
+--
+-- >>> pretty $ takeDs [1,2,-3] a
+-- [[[1,2,3],
+--   [5,6,7]]]
+takeDs ::
+  [Int] ->
+  Array a ->
+  Array a
+takeDs ts a = rowWise takes ts a
+
+-- | Takes the top-most elements across the supplied dimension,n tuples. Negative values take the bottom-most.
 --
 -- > takes == dimsWise take
 --
--- >>> pretty $ takes [(0,1), (1,2), (2,-3)] a
+-- >>> pretty $ takes [(0,1), (2,-3)] a
 -- [[[1,2,3],
---   [5,6,7]]]
+--   [5,6,7],
+--   [9,10,11]]]
 takes ::
   [(Int, Int)] ->
   Array a ->
   Array a
-takes ts a = backpermute dsNew (List.zipWith3 (\d' a' s' -> bool s' (s' + a' + d') (d' < 0)) xsNew (shape a)) a
+takes ts a = backpermute dsNew (List.zipWith (+) start) a
   where
     dsNew = S.replaceDims ds xsAbs
-    xsNew = S.replaceDims ds xs (replicate (rank a) 0)
+    start = List.zipWith (\x s -> bool 0 (s + x) (x<0)) (S.replaceDimsT ts (replicate (rank a) 0)) (shape a)
     ds = fmap fst ts
     xs = fmap snd ts
     xsAbs = fmap abs xs
+
+-- | Drops the top-most elements across all dimensions. Negative values take the bottom-most.
+--
+-- > dropDs == rowWise drop
+--
+-- >>> pretty $ dropDs [1,2,-3] a
+-- [[[20]]]
+dropDs ::
+  [Int] ->
+  Array a ->
+  Array a
+dropDs ts a = rowWise drops ts a
 
 -- | Drops the top-most elements. Negative values drop the bottom-most.
 --
@@ -955,30 +992,6 @@ slices ::
   Array a
 slices ps a = dimsWise slice ps a
 
--- | Reduce along specified dimensions, using the supplied fold.
---
--- >>> pretty $ reduces [0] sum a
--- [66,210]
--- >>> pretty $ reduces [0,2] sum a
--- [[12,15,18,21],
---  [48,51,54,57]]
---
-reduces ::
-  [Int] ->
-  (Array a -> b) ->
-  Array a ->
-  Array b
-reduces ds f a = fmap f (extracts ds a)
-
--- | Traverse along specified dimensions.
-traverses ::
-  (Applicative f) =>
-  [Int] ->
-  (a -> f b) ->
-  Array a ->
-  f (Array b)
-traverses ds f a = join <$> traverse (traverse f) (extracts ds a)
-
 -- | Extracts dimensions to an outer layer.
 --
 --
@@ -1004,6 +1017,21 @@ extractsExcept ::
   Array a ->
   Array (Array a)
 extractsExcept ds a = extracts (S.exclude (rank a) ds) a
+
+-- | Reduce along specified dimensions, using the supplied fold.
+--
+-- >>> pretty $ reduces [0] sum a
+-- [66,210]
+-- >>> pretty $ reduces [0,2] sum a
+-- [[12,15,18,21],
+--  [48,51,54,57]]
+--
+reduces ::
+  [Int] ->
+  (Array a -> b) ->
+  Array a ->
+  Array b
+reduces ds f a = fmap f (extracts ds a)
 
 -- | Join inner and outer dimension layers by supplied dimensions. No checks on shape.
 --
@@ -1064,6 +1092,15 @@ allEqual :: (Eq a) => Array a -> Bool
 allEqual a = case arrayAs a of
   [] -> True
   (x : xs) -> all (== x) xs
+
+-- | Traverse along specified dimensions.
+traverses ::
+  (Applicative f) =>
+  [Int] ->
+  (a -> f b) ->
+  Array a ->
+  f (Array b)
+traverses ds f a = join <$> traverse (traverse f) (extracts ds a)
 
 -- | Maps a function along specified dimensions.
 --
