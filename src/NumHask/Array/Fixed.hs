@@ -67,7 +67,6 @@ module NumHask.Array.Fixed
     -- ** Element-level operators
     zipWith,
     modify,
-    diff,
     imap,
 
     -- ** Operator generalisers
@@ -76,18 +75,21 @@ module NumHask.Array.Fixed
 
     -- ** Single-dimension operators
     take,
+    takeB,
+    drop,
+    dropB,
+    select,
     concatenate,
     insert,
     delete,
     append,
     prepend,
+    couple,
     slice,
 
     -- * Operators
-    takeDs,
     takes,
     takeBs,
-    dropDs,
     drops,
     dropBs,
     indexes,
@@ -96,6 +98,7 @@ module NumHask.Array.Fixed
     heads,
     lasts,
     tails,
+    inits,
     slices,
 
     -- * Function application
@@ -108,6 +111,8 @@ module NumHask.Array.Fixed
     maps,
     filters,
     zips,
+    modifies,
+    diffs,
 
     -- ** Expansion
     expand,
@@ -117,14 +122,36 @@ module NumHask.Array.Fixed
     mult,
     windows,
 
+    -- ** Search
+    find,
+
     -- * Shape manipulations
+    fill,
+    cut,
+    cutSuffix,
+    pad,
+    lpad,
     reshape,
+    flat,
+    repeat,
+    cycle,
+    rerank,
     reorder,
     squeeze,
+    elongate,
     transpose,
+    inflate,
     reverses,
     rotate,
     rotates,
+
+    -- * Row specializations
+    pattern (:<),
+    cons,
+    uncons,
+    pattern (:>),
+    snoc,
+    unsnoc,
 
     -- * Maths
     uniform,
@@ -146,22 +173,24 @@ import Data.Proxy
 import Data.Vector qualified as V
 import Fcf hiding (type (&&), type (+), type (-), type (++))
 import Fcf qualified
+import Fcf.Data.List
 import GHC.TypeNats
 import NumHask.Array.Dynamic qualified as D
-import NumHask.Array.Shape hiding (concatenate, rank, size, asScalar, asSingleton, squeeze, rotate, reorder)
+import NumHask.Array.Shape hiding (concatenate, rank, size, asScalar, asSingleton, squeeze, rotate, reorder, rerank)
 import NumHask.Array.Shape qualified as S
-import NumHask.Prelude as P hiding (Min, take, diff, zipWith, empty, sequence, toList, length)
-import Prettyprinter hiding (dot)
+import NumHask.Prelude as P hiding (Min, take, drop, diff, zipWith, empty, sequence, toList, length, repeat, cycle, find)
+import Prettyprinter hiding (dot, fill)
 import Data.List qualified as List
 import System.Random hiding (uniform)
 import System.Random.Stateful hiding (uniform)
+import Unsafe.Coerce
 
 -- $setup
 --
 -- >>> :m -Prelude
 -- >>> :set -XDataKinds
 -- >>> :set -XRebindableSyntax
--- >>> import NumHask.Prelude hiding (empty, diff, take, drop, zipWith)
+-- >>> import NumHask.Prelude hiding (cycle, repeat, empty, diff, take, drop, zipWith, find)
 -- >>> import NumHask.Array.Fixed as F
 -- >>> import NumHask.Array.Shape qualified as S
 -- >>> import GHC.TypeNats
@@ -658,24 +687,6 @@ zipWith f (asVector -> a) (asVector -> b) = unsafeArray (V.zipWith f a b)
 modify :: (HasShape s) => Fins s -> (a -> a) -> Array s a -> Array s a
 modify ds f a = tabulate (\s -> bool id f (s == ds) (index a s))
 
--- | Row-wise difference an array using the supplied function with a lag.
---
--- >> pretty $ diff (Proxy :: Proxy [1,0]) (-) (range @[3,2])
--- [[2,2],
---  [2,2]]
-diff ::
-  forall lag s s' a b.
-  (HasShape lag,
-   HasShape s,
-   HasShape s',
-   s' ~ Eval (ZipWith (Fcf.-) s lag)
-  ) =>
-   Proxy lag ->
-   (a -> a -> b) ->
-   Array s a ->
-   Array s' b
-diff lag f a = zipWith f (dropDs lag a) (dropBs lag a)
-
 -- | Maps an index function at element-level.
 --
 -- >>> pretty $ imap (\xs x -> x - sum xs) a
@@ -729,6 +740,7 @@ colWise f _ a = f (Proxy :: Proxy ts) a
 
 -- | Take the top-most elements across the specified dimension.
 --
+-- FIXME:
 -- > withSomeNat 2 (\t -> withSomeSNat 1 (\dim -> F.take dim t a))
 --
 -- >>> pretty $ take (SNat @2) (SNat @1) a
@@ -744,7 +756,7 @@ take ::
     HasShape s',
     KnownNat d,
     KnownNat t,
-    -- Fin (Rank s) ~ SNat d,
+    Eval (IsFin d (Eval (Rank s))) ~ True,
     Eval (SetIndex d (Eval (Min t (Eval (UnsafeGetIndex d s)))) s) ~ s'
   ) =>
   SNat d ->
@@ -752,6 +764,97 @@ take ::
   Array s a ->
   Array s' a
 take _ _ a = unsafeBackpermute id a
+
+-- | Take the bottom-most elements across the specified dimension.
+--
+-- >>> pretty $ takeB (SNat @2) (SNat @1) a
+-- [[[3],
+--   [7],
+--   [11]],
+--  [[15],
+--   [19],
+--   [23]]]
+takeB ::
+  forall s s' a d t.
+  ( HasShape s,
+    HasShape s',
+    KnownNat d,
+    KnownNat t,
+    Eval (IsFin d (Eval (Rank s))) ~ True,
+    Eval (SetIndex d (Eval (Min t (Eval (UnsafeGetIndex d s)))) s) ~ s'
+  ) =>
+  SNat d ->
+  SNat t ->
+  Array s a ->
+  Array s' a
+takeB _ _ a = unsafeBackpermute (\s -> modifyDim (valueOf @d) (\x -> x + (unsafeGetIndex (valueOf @d) (shape a)) - (valueOf @t)) s) a
+
+-- | Drop the top-most elements across the specified dimension.
+--
+-- >>> pretty $ drop (SNat @2) (SNat @1) a
+-- [[[1,2,3],
+--   [5,6,7],
+--   [9,10,11]],
+--  [[13,14,15],
+--   [17,18,19],
+--   [21,22,23]]]
+drop ::
+  forall s s' a d t.
+  ( HasShape s,
+    HasShape s',
+    KnownNat d,
+    KnownNat t,
+    Eval (IsFin d (Eval (Rank s))) ~ True,
+    Eval (SetIndex d (Eval ((Fcf.-) (Eval (UnsafeGetIndex d s)) t)) s) ~ s'
+  ) =>
+  SNat d ->
+  SNat t ->
+  Array s a ->
+  Array s' a
+drop _ _ a = unsafeBackpermute (S.modifyDim (valueOf @d) (\x -> x + bool (valueOf @t) 0 ((valueOf @t) < 0))) a
+
+-- | Drop the bottom-most elements across the specified dimension.
+--
+-- >>> pretty $ dropB (SNat @2) (SNat @1) a
+-- [[[0,1,2],
+--   [4,5,6],
+--   [8,9,10]],
+--  [[12,13,14],
+--   [16,17,18],
+--   [20,21,22]]]
+dropB ::
+  forall s s' a d t.
+  ( HasShape s,
+    HasShape s',
+    KnownNat d,
+    KnownNat t,
+    Eval (IsFin d (Eval (Rank s))) ~ True,
+    Eval (SetIndex d (Eval ((Fcf.-) (Eval (UnsafeGetIndex d s)) t)) s) ~ s'
+  ) =>
+  SNat d ->
+  SNat t ->
+  Array s a ->
+  Array s' a
+dropB _ _ a = unsafeBackpermute id a
+
+-- | Select an index along a dimension.
+--
+-- >>> let s = select (SNat @2) (SNat @3) a
+-- >>> pretty s
+-- [[3,7,11],
+--  [15,19,23]]
+select ::
+  forall d x a s s'.
+  (KnownNat d,
+   KnownNat x,
+   HasShape s,
+   HasShape s',
+   s' ~ Eval (DeleteDim d s)) =>
+  SNat d ->
+  SNat x ->
+  Array s a ->
+  Array  s' a
+select _ _ a = unsafeBackpermute (S.insertDim (valueOf @d) (valueOf @x)) a
 
 -- | Concatenate along a dimension.
 --
@@ -810,6 +913,7 @@ insert ::
    HasShape s',
    HasShape (Eval (AsSingleton s)),
    HasShape (Eval (AsSingleton si)),
+   -- FIXME si relationship
    s' ~ Eval (IncAt d (Eval (AsSingleton s)))
    ) =>
   Proxy d ->
@@ -902,9 +1006,24 @@ prepend ::
   Array s' a
 prepend d a b = insert d 0 b a
 
+-- | Combine two arrays as rows of a new array.
+--
+-- >>> pretty $ couple (array @'[3] [1,2,3]) (array @'[3] @Int [4,5,6])
+-- [[1,2,3],
+--  [4,5,6]]
+couple :: forall a s s' se.
+  (HasShape s,
+   HasShape s',
+   HasShape se,
+   s' ~ Eval (Concatenate 0 (Eval (AsSingleton se)) (Eval (AsSingleton se))),
+   se ~ Eval (InsertDim 0 1 s)
+  ) =>
+  Array s a -> Array s a -> Array s' a
+couple a a' = concatenate (Proxy :: Proxy 0) (elongate (SNat @0) a) (elongate (SNat @0) a')
+
 -- | Slice along a dimension with the supplied (offset, length).
 --
--- >>> pretty $ slice (Proxy :: Proxy 2) 1 (Proxy :: Proxy 2) a
+-- >>> pretty $ slice (SNat @2) (Proxy :: Proxy '(1,2)) a
 -- [[[1,2],
 --   [5,6],
 --   [9,10]],
@@ -912,35 +1031,19 @@ prepend d a b = insert d 0 b a
 --   [17,18],
 --   [21,22]]]
 slice ::
-  forall a d l s s'.
+  forall a d offl off l s s'.
   (HasShape s,
    HasShape s',
    KnownNat d,
+   KnownNat off,
+   off ~ Eval (Fst offl),
+   l ~ Eval (Snd offl),
    Eval (SetIndex d l s) ~ s') =>
-  Proxy d ->
-  Int ->
-  Proxy l ->
+  SNat d ->
+  Proxy offl ->
   Array s a ->
   Array s' a
-slice _ o _ a = unsafeBackpermute (S.modifyDim (valueOf @d) (+ o)) a
-
--- | Takes the top-most elements according to the new dimensions.
---
--- >>> pretty (takeDs @[1,2,2] a)
--- [[[0,1],
---   [4,5]]]
---
--- > takeDs == rowWise take
---
-takeDs ::
-  forall s' s a.
-  ( HasShape s,
-    HasShape s',
-    Eval (ShapeLTE s' s) ~ 'True
-  ) =>
-  Array s a ->
-  Array s' a
-takeDs a = unsafeBackpermute id a
+slice _ _ a = unsafeBackpermute (S.modifyDim (valueOf @d) (+ (valueOf @off))) a
 
 -- | Takes the top-most elements across the supplied dimension,n tuples.
 --
@@ -980,24 +1083,7 @@ takeBs _ a = unsafeBackpermute (List.zipWith (+) start) a
   where
     start = List.zipWith (-) (shape a) (S.replaceDimsT (zip (shapeOf @ds) (shapeOf @xs)) (shape a))
 
--- | Drops the top-most elements across all dimensions.
---
--- >>> pretty $ dropDs (Proxy :: Proxy [1,2,3]) a
--- [[[23]]]
-dropDs ::
-  forall ds s' s a.
-  ( HasShape s,
-    HasShape s',
-    s' ~ Eval (ZipWith (Fcf.-) s ds)
-  ) =>
-  Proxy ds ->
-  Array s a ->
-  Array s' a
-dropDs _ a = unsafeBackpermute (List.zipWith (+) start) a
-  where
-    start = List.zipWith (-) (shapeOf @s) (shapeOf @s')
-
--- | Drops the top-most elements across all dimensions.
+-- | Drops the top-most elements across dimension,n tuples.
 --
 -- >>> pretty $ drops (Proxy :: Proxy [ '(0,1), '(2,3)]) a
 -- [[[15],
@@ -1016,18 +1102,19 @@ drops _ a = unsafeBackpermute (List.zipWith (+) start) a
   where
     start = List.zipWith (-) (shapeOf @s) (shapeOf @s')
 
--- | Drops the bottom-most elements across all dimensions.
+-- | Drops the bottom-most elements across dimension,n tuples.
 --
--- >>> pretty $ dropBs (Proxy :: Proxy [1,2,3]) a
--- [[[0]]]
+-- >>> pretty $ dropBs (Proxy :: Proxy [ '(0,1), '(2,3)]) a
+-- [[[0],
+--   [4],
+--   [8]]]
 dropBs ::
-  forall ds s' s a.
+  forall ts s' s a.
   ( HasShape s,
     HasShape s',
-    HasShape ds,
-    s' ~ Eval (ZipWith (Fcf.-) s ds)
+    s' ~ Eval (DropDims ts s)
   ) =>
-  Proxy ds ->
+  Proxy ts ->
   Array s a ->
   Array s' a
 dropBs _ a = unsafeBackpermute id a
@@ -1116,32 +1203,59 @@ lasts ds a = indexes ds lastxs a
 
 -- | Select the tail elements along the supplied dimensions
 --
--- FIXME: Get new shape into the type level.
--- > pretty $ tails (Proxy :: Proxy [0,2]) (Proxy :: Proxy [1,2,3]) a
+-- >>> pretty $ tails (Proxy :: Proxy [0,2]) a
 -- [[[13,14,15],
 --   [17,18,19],
 --   [21,22,23]]]
 tails ::
-  forall ds s s' a ls.
+  forall ds os ts s s' a ls.
   ( HasShape s,
     HasShape ds,
     HasShape s',
     HasShape ls,
-    s' ~ Eval (DeleteDims ds s),
-    s' ~ Eval (ReplaceDims ds ls s)
+    HasShape os,
+    ts ~ Eval (Zip ds (Eval (Zip os ls))),
+    os ~ Eval (Replicate (Eval (Rank ds)) 1),
+    ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds s))),
+    s' ~ Eval (ReplaceDims ds ls s),
+    ds ~ Eval (Map Fst ts),
+    ls ~ Eval (Map Snd (Eval (Map Snd ts))),
+    os ~ Eval (Map Fst (Eval (Map Snd ts)))
   ) =>
   Proxy ds ->
-  Proxy ls ->
   Array s a ->
   Array s' a
-tails ds ls a = slices ds (replicate (rankOf @ds) 1) ls a
-  where
-    -- FIXME:
-    -- ls = (\i -> shape a !! i - 1) <$> shapeOf @ds
+tails _ a = slices (Proxy :: Proxy ts) a
+
+-- | Select the init elements along the supplied dimensions
+--
+-- >>> pretty $ inits (Proxy :: Proxy [0,2]) a
+-- [[[0,1,2],
+--   [4,5,6],
+--   [8,9,10]]]
+inits ::
+  forall ds os ts s s' a ls.
+  ( HasShape s,
+    HasShape ds,
+    HasShape s',
+    HasShape ls,
+    HasShape os,
+    ts ~ Eval (Zip ds (Eval (Zip os ls))),
+    os ~ Eval (Replicate (Eval (Rank ds)) 0),
+    ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds s))),
+    s' ~ Eval (ReplaceDims ds ls s),
+    ds ~ Eval (Map Fst ts),
+    ls ~ Eval (Map Snd (Eval (Map Snd ts))),
+    os ~ Eval (Map Fst (Eval (Map Snd ts)))
+  ) =>
+  Proxy ds ->
+  Array s a ->
+  Array s' a
+inits _ a = slices (Proxy :: Proxy ts) a
 
 -- | Slice along a dimension with the supplied (offset, length).
 --
--- >>> pretty $ slice (Proxy :: Proxy 2) 1 (Proxy :: Proxy 2) a
+-- >>> pretty $ slices (Proxy :: Proxy '[ '(2, '(1,2))]) a
 -- [[[1,2],
 --   [5,6],
 --   [9,10]],
@@ -1149,18 +1263,22 @@ tails ds ls a = slices ds (replicate (rankOf @ds) 1) ls a
 --   [17,18],
 --   [21,22]]]
 slices ::
-  forall a ds ls s s'.
+  forall a ds ls os s s' ts.
   (HasShape s,
    HasShape s',
    HasShape ds,
    HasShape ls,
+   HasShape os,
+   ds ~ Eval (Map Fst ts),
+   ls ~ Eval (Map Snd (Eval (Map Snd ts))),
+   os ~ Eval (Map Fst (Eval (Map Snd ts))),
    Eval (ReplaceDims ds ls s) ~ s') =>
-  Proxy ds ->
-  [Int] ->
-  Proxy ls ->
+  Proxy ts ->
   Array s a ->
   Array s' a
-slices _ o _ a = unsafeBackpermute (S.modifyDims (shapeOf @ds) (fmap (+) o)) a
+slices _ a = unsafeBackpermute (List.zipWith (+) o) a
+  where
+    o = S.replaceDims (shapeOf @ds) (shapeOf @os) (replicate (rank a) 0)
 
 -- | Extracts dimensions to an outer layer.
 --
@@ -1324,7 +1442,7 @@ filters ds p a = D.asArray $ V.filter p $ asVector (extracts ds a)
 
 -- | Zips two arrays with a function along specified dimensions.
 --
--- > pretty $ zips (Proxy :: Proxy [0,1]) (zipWith (,)) a (reverses [0] a)
+-- >>> pretty $ zips (Proxy :: Proxy [0,1]) (zipWith (,)) a (reverses [0] a)
 -- [[[(0,12),(1,13),(2,14),(3,15)],
 --   [(4,16),(5,17),(6,18),(7,19)],
 --   [(8,20),(9,21),(10,22),(11,23)]],
@@ -1350,6 +1468,62 @@ zips ::
   Array st b ->
   Array st' c
 zips ds f a b = joins ds (zipWith f (extracts ds a) (extracts ds b))
+
+-- | Modify using the supplied function along (dimension, position) tuples.
+--
+-- >>> pretty $ modifies (fmap (100+)) (Proxy :: Proxy '[ '(2,0)]) a
+-- [[[100,1,2,3],
+--   [104,5,6,7],
+--   [108,9,10,11]],
+--  [[112,13,14,15],
+--   [116,17,18,19],
+--   [120,21,22,23]]]
+modifies ::
+  forall a si s ts ds ps so.
+  ( HasShape s,
+    HasShape si,
+    HasShape so,
+    HasShape ds,
+    HasShape ps,
+    ds ~ Eval (Map Fst ts),
+    ps ~ Eval (Map Snd ts),
+    si ~ Eval (DeleteDims ds s),
+    so ~ Eval (TakeDims ds s),
+    s ~ Eval (InsertDims (Eval (Zip ds so)) si)) =>
+  (Array si a -> Array si a) ->
+  Proxy ts ->
+  Array s a ->
+  Array s a
+modifies f _ a = joins (Proxy :: Proxy ds) $ modify (UnsafeFins $ shapeOf @ps) f (extracts (Proxy :: Proxy ds) a)
+
+-- | Apply a binary function between successive slices, across (dimension, lag) tuples
+--
+-- >>> pretty $ diffs (Proxy :: Proxy '[ '(1,1)]) (zipWith (-)) a
+-- [[[4,4,4,4],
+--   [4,4,4,4]],
+--  [[4,4,4,4],
+--   [4,4,4,4]]]
+diffs ::
+  forall a b ts ds ls si si' st st' so postDrop.
+  ( HasShape ds,
+    HasShape ls,
+    HasShape si,
+    HasShape si',
+    HasShape st,
+    HasShape st',
+    HasShape so,
+    HasShape postDrop,
+    si ~ Eval (DeleteDims ds postDrop),
+    so ~ Eval (TakeDims ds postDrop),
+    st' ~ Eval (InsertDims (Eval (Zip ds so)) si'),
+    postDrop ~ Eval (InsertDims (Eval (Zip ds so)) si),
+    ds ~ Eval (Map Fst ts),
+    ls ~ Eval (Map Snd ts),
+    postDrop ~ Eval (DropDims ts st)
+  ) =>
+  Proxy ts ->
+  (Array si a -> Array si a -> Array si' b) -> Array st a -> Array st' b
+diffs ts f a = zips (Proxy :: Proxy ds) f (drops ts a) (dropBs ts a)
 
 -- | Product two arrays using the supplied binary function.
 --
@@ -1388,7 +1562,7 @@ expand ::
   Array sa a ->
   Array sb b ->
   Array sc c
-expand f a b = tabulate (\i -> f (index a (UnsafeFins $ List.take r (fromFins i))) (index b (UnsafeFins $ drop r (fromFins i))))
+expand f a b = tabulate (\i -> f (index a (UnsafeFins $ List.take r (fromFins i))) (index b (UnsafeFins $ List.drop r (fromFins i))))
   where
     r = rank a
 
@@ -1414,7 +1588,7 @@ expandr ::
   Array sa a ->
   Array sb b ->
   Array sc c
-expandr f a b = tabulate (\i -> f (index a (UnsafeFins $ drop r (fromFins i))) (index b (UnsafeFins $ List.take r (fromFins i))))
+expandr f a b = tabulate (\i -> f (index a (UnsafeFins $ List.drop r (fromFins i))) (index b (UnsafeFins $ List.take r (fromFins i))))
   where
     r = rank a
 
@@ -1544,6 +1718,127 @@ windows :: forall w s ws a.
   Proxy w -> Array s a -> Array ws a
 windows _ a = unsafeBackpermute (S.indexWindows (rankOf @w)) a
 
+-- | Find the starting positions of occurences of one array in another.
+--
+-- >>> a = cycle @[4,4] (range @'[3])
+-- >>> i = array @[2,2] [1,2,2,0]
+-- >>> pretty $ find i a
+-- [[False,True,False],
+--  [True,False,False],
+--  [False,False,True]]
+find ::
+  forall si s s' a r i' re ws.
+  (Eq a,
+   HasShape si,
+   HasShape s,
+   HasShape s',
+   HasShape re,
+   HasShape i',
+   KnownNat r,
+   HasShape ws,
+   ws ~ Eval (ExpandWindows i' s),
+   r ~ Eval (Rank s),
+   i' ~ Eval (Rerank r si),
+   re ~ Eval ((Fcf.++) (Eval (Range (Eval (Rank s)))) (Eval (EnumFromTo (r + r) (Eval ((Fcf.-) (Eval (Rank ws)) 1))))),
+   i' ~ Eval (DeleteDims re ws),
+   s' ~ Eval (TakeDims re ws)
+  ) =>
+  Array si a -> Array s a -> Array s' Bool
+find i a = xs
+  where
+    i' = rerank (SNat @r) i
+    ws = windows (Proxy :: Proxy i') a
+    xs = fmap (== i') (extracts (Proxy :: Proxy re) ws)
+
+-- | Fill an array with the supplied value without regard to the original shape or cut the array values to match array size.
+--
+-- > validate (def x a) == True
+--
+-- >>> pretty $ fill @'[3] 0 (array @'[0] [])
+-- [0,0,0]
+-- >>> pretty $ fill @'[3] 0 (array @'[4] [1..4])
+-- [1,2,3]
+fill ::
+  forall s' a s.
+  (HasShape s,
+   HasShape s') =>
+  a -> Array s a -> Array s' a
+fill x (Array v) = Array (V.take (S.size (shapeOf @s')) (v <> V.replicate (S.size (shapeOf @s') - V.length v) x))
+
+-- | Cut an array to form a new (smaller) shape. Errors if the new shape is larger. The old array is reranked to the rank of the new shape first.
+--
+-- >>> toDynamic $ cut @'[2] (array @'[4] @Int [0..3])
+-- UnsafeArray [2] [0,1]
+cut ::
+  forall s' s a.
+  (HasShape s,
+   HasShape s',
+   True ~ Eval (ShapeLTE s' (Eval (Rerank (Eval (Rank s')) s)))) =>
+  Array s a ->
+  Array s' a
+cut a = unsafeBackpermute id a
+
+-- | Cut an array to form a new (smaller) shape, using suffix elements. Errors if the new shape is larger. The old array is reranked to the rank of the new shape first.
+--
+-- >>> toDynamic $ cutSuffix @[2,2] a
+-- UnsafeArray [2,2] [18,19,22,23]
+cutSuffix ::
+  forall s' s a r.
+  (HasShape s,
+   HasShape s',
+   KnownNat r,
+   HasShape (Eval (Rerank r s)),
+   r ~ Eval (Rank s'),
+   True ~ Eval (ShapeLTE s' (Eval (Rerank (Eval (Rank s')) s)))) =>
+  Array s a ->
+  Array s' a
+cutSuffix a = unsafeBackpermute (List.zipWith (+) diffDim) a'
+  where
+    a' = rerank (SNat @r) a
+    diffDim = List.zipWith (-) (shape a') (shapeOf @s')
+
+-- | Pad an array to form a new shape, supplying a default value for elements outside the shape of the old array. The old array is reranked to the rank of the new shape first.
+--
+-- >>> toDynamic $ pad @'[5] 0 (array @'[4] @Int [0..3])
+-- UnsafeArray [5] [0,1,2,3,0]
+pad ::
+  forall s' a s r.
+  (HasShape s,
+   HasShape s',
+   KnownNat r,
+   HasShape (Eval (Rerank r s)),
+   r ~ Eval (Rank s')) =>
+  a ->
+  Array s a ->
+  Array s' a
+pad d a = tabulate (\s -> bool d (index a' (unsafeCoerce s)) ((fromFins s) `S.inside` (shape a')))
+  where
+    a' = rerank (SNat @r) a
+
+-- | Left pad an array to form a new shape, supplying a default value for elements outside the shape of the old array.
+--
+-- >>> toDynamic $ lpad @'[5] 0 (array @'[4] [0..3])
+-- UnsafeArray [5] [0,0,1,2,3]
+-- >>> pretty $ lpad @[3,3] 0 (range @[2,2])
+-- [[0,0,0],
+--  [0,0,1],
+--  [0,2,3]]
+lpad ::
+  forall s' a s r.
+  (HasShape s,
+   HasShape s',
+   KnownNat r,
+   HasShape (Eval (Rerank r s)),
+   r ~ Eval (Rank s')) =>
+  a ->
+  Array s a ->
+  Array s' a
+lpad d a = tabulate (\s -> bool d (index a' (UnsafeFins $ olds s)) ((olds s) `S.inside` (shape a')))
+  where
+    a' = rerank (SNat @r) a
+    gap = List.zipWith (-) (shapeOf @s') (shape a')
+    olds s = List.zipWith (-) (fromFins s) gap
+
 -- | Reshape an array (with the same number of elements).
 --
 -- >>> pretty $ reshape @[4,3,2] a
@@ -1571,6 +1866,65 @@ reshape = unsafeBackpermute (shapen s . flatten s')
   where
     s = shapeOf @s
     s' = shapeOf @s'
+
+-- | Make an Array single dimensional
+--
+-- >>> pretty $ flat (range @[2,2])
+-- [0,1,2,3]
+-- >>> pretty (flat $ toScalar 0)
+-- [0]
+flat :: forall s' s a. (HasShape s, HasShape s', s' ~ ('[Eval (Size s)])) => Array s a -> Array s' a
+flat a = unsafeModifyShape a
+
+-- | Reshape an array, repeating the original array. The shape of the array should be a suffix of the new shape.
+--
+-- >>> pretty $ repeat @[2,2,2] (array @'[2] [1,2])
+-- [[[1,2],
+--   [1,2]],
+--  [[1,2],
+--   [1,2]]]
+--
+-- > repeat ds (toScalar x) == konst ds x
+repeat ::
+  forall s' s a.
+  (HasShape s,
+   HasShape s',
+   Eval (IsPrefixOf s s') ~ True) =>
+  Array s a ->
+  Array s' a
+repeat a = unsafeBackpermute (List.drop (S.rank (shapeOf @s') - rank a)) a
+
+-- | Reshape an array, cycling through the elements without regard to the original shape.
+--
+-- >>> pretty $ cycle @[2,2,2] (array @'[3] [1,2,3])
+-- [[[1,2],
+--   [3,1]],
+--  [[2,3],
+--   [1,2]]]
+cycle ::
+  forall s' s a.
+  (HasShape s,
+   HasShape s') =>
+  Array s a ->
+  Array s' a
+cycle a = unsafeBackpermute (S.shapen (shape a) . (`mod` (size a)) . S.flatten (shapeOf @s')) a
+
+-- | Change rank by adding new dimensions at the front, if the new rank is greater, or combining dimensions (from left to right) into rows, if the new rank is lower.
+--
+-- >>> shape (rerank (SNat @4) a)
+-- [1,2,3,4]
+-- >>> shape (rerank (SNat @2) a)
+-- [6,4]
+--
+-- > flat == rerank 1
+rerank ::
+  forall r s s' a.
+  (HasShape s,
+   HasShape s',
+   KnownNat r,
+   s' ~ Eval (Rerank r s)) =>
+  SNat r -> Array s a -> Array s' a
+rerank _ a = unsafeModifyShape a
 
 -- | Change the order of dimensions.
 --
@@ -1642,6 +1996,22 @@ squeeze ::
   Array t a
 squeeze = unsafeModifyShape
 
+-- | Insert a single dimension at the supplied position.
+--
+-- >>> shape $ elongate (SNat @1) a
+-- [2,1,3,4]
+-- >>> toDynamic $ elongate (SNat @0) (toScalar 1)
+-- UnsafeArray [1] [1]
+elongate ::
+  (HasShape s,
+   HasShape s',
+   KnownNat d,
+   s' ~ Eval (InsertDim d 1 s)) =>
+  SNat d ->
+  Array s a ->
+  Array s' a
+elongate _ a = unsafeModifyShape a
+
 -- | Reverse indices eg transposes the element A/ijk/ to A/kji/.
 --
 -- >>> (transpose a) ! [1,0,0] == a ! [0,0,1]
@@ -1654,6 +2024,27 @@ squeeze = unsafeModifyShape
 transpose ::
   forall a s s'. (HasShape s, HasShape s', s' ~ Eval (Reverse s)) => Array s a -> Array s' a
 transpose a = unsafeBackpermute List.reverse a
+
+-- | Inflate an array by inserting a new dimension given a supplied dimension and size.
+--
+-- alt name: replicate
+--
+-- >>> pretty $ inflate (SNat @0) (SNat @2) (array @'[3] [0,1,2])
+-- [[0,1,2],
+--  [0,1,2]]
+inflate ::
+  forall s' s d x a.
+  (HasShape s,
+   HasShape s',
+   KnownNat d,
+   KnownNat x,
+   Eval (IsFin d (Eval (Rank s))) ~ True,
+   s' ~ Eval (InsertDim d x s)) =>
+  SNat d ->
+  SNat x ->
+  Array s a ->
+  Array s' a
+inflate _ _ a = unsafeBackpermute (S.deleteDim (valueOf @d)) a
 
 -- | Reverses element order along specified dimensions.
 --
@@ -1744,7 +2135,185 @@ instance
   where
   recip a = invtri (transpose (chol a)) * invtri (chol a)
 
--- | Generate an array of uniform random variates between a range.
+-- * row (first dimension) specializations
+
+-- | Add a new row
+--
+-- >>> pretty $ cons (array @'[2] [0,1]) (array @[2,2] [2,3,4,5])
+-- [[0,1],
+--  [2,3],
+--  [4,5]]
+cons ::
+  forall st s sh a pos.
+  ( HasShape st,
+    HasShape s,
+    HasShape sh,
+    KnownNat pos,
+    HasShape (Eval (AsSingleton st)),
+    HasShape (Eval (AsSingleton sh)),
+    s ~ Eval (IncAt 0 (Eval (AsSingleton st))),
+    pos ~ Eval ((Fcf.-) (Eval (UnsafeGetIndex 0 st)) 1)) =>
+    Array sh a -> Array st a -> Array s a
+cons =
+  prepend (Proxy :: Proxy 0)
+
+-- | Add a new row at the end
+--
+-- >>> pretty $ snoc (array @[2,2] [0,1,2,3]) (array @'[2] [4,5])
+-- [[0,1],
+--  [2,3],
+--  [4,5]]
+snoc :: forall si s sl a pos.
+  ( HasShape si,
+    HasShape s,
+    HasShape sl,
+    HasShape (Eval (AsSingleton si)),
+    HasShape (Eval (AsSingleton sl)),
+    s ~ Eval (IncAt 0 (Eval (AsSingleton si))),
+    KnownNat pos,
+    pos ~ Eval (UnsafeGetIndex 0 si)) =>
+    Array si a -> Array sl a -> Array s a
+snoc = append (Proxy :: Proxy 0)
+
+-- | split an array into the first row and the remaining rows.
+--
+-- >>> import Data.Bifunctor (bimap)
+-- >>> bimap toDynamic toDynamic $ uncons (array @[3,2] [0..5])
+-- (UnsafeArray [2] [0,1],UnsafeArray [2,2] [2,3,4,5])
+uncons ::
+  forall a s sh st ls os ts ds.
+  (HasShape s,
+   HasShape sh,
+   HasShape st,
+   ds ~ '[0],
+   HasShape (Eval (AsSingleton s)),
+   sh ~ Eval (DeleteDims ds (Eval (AsSingleton s))),
+   HasShape ls,
+   HasShape os,
+   ts ~ Eval (Zip ds (Eval (Zip os ls))),
+   os ~ Eval (Replicate (Eval (Rank ds)) 1),
+   ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds (Eval (AsSingleton s))))),
+   st ~ Eval (ReplaceDims ds ls (Eval (AsSingleton s))),
+   ds ~ Eval (Map Fst ts),
+   ls ~ Eval (Map Snd (Eval (Map Snd ts))),
+   os ~ Eval (Map Fst (Eval (Map Snd ts)))
+  ) =>
+  Array s a -> (Array sh a, Array st a)
+uncons a = (heads (Proxy :: Proxy '[0]) a', tails (Proxy :: Proxy '[0]) a')
+  where
+    a' = asSingleton a
+
+-- | split an array into the initial rows and the last row.
+--
+-- >>> import Data.Bifunctor (bimap)
+-- >>> bimap toDynamic toDynamic $ unsnoc (array @[3,2] [0..5])
+-- (UnsafeArray [2,2] [0,1,2,3],UnsafeArray [2] [4,5])
+unsnoc ::
+  forall ds os ts s a ls si sl.
+  ( HasShape s,
+    HasShape ds,
+    HasShape si,
+    HasShape ls,
+    HasShape os,
+    HasShape sl,
+    HasShape (Eval (AsSingleton s)),
+    ds ~ '[0],
+    ts ~ Eval (Zip ds (Eval (Zip os ls))),
+    os ~ Eval (Replicate (Eval (Rank ds)) 0),
+    ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds (Eval (AsSingleton s))))),
+    si ~ Eval (ReplaceDims ds ls (Eval (AsSingleton s))),
+    ds ~ Eval (Map Fst ts),
+    ls ~ Eval (Map Snd (Eval (Map Snd ts))),
+    os ~ Eval (Map Fst (Eval (Map Snd ts))),
+    sl ~ Eval (DeleteDims ds (Eval (AsSingleton s)))
+  ) => Array s a -> (Array si a, Array sl a)
+unsnoc a = (inits (Proxy :: Proxy '[0]) a', lasts (Proxy :: Proxy '[0]) a')
+  where
+    a' = asSingleton a
+
+-- | Convenience pattern for row extraction and consolidation at the beginning of an Array.
+--
+-- >>> (x:<xs) = array @'[4] [0..3]
+-- >>> toDynamic x
+-- UnsafeArray [] [0]
+-- >>> toDynamic xs
+-- UnsafeArray [3] [1,2,3]
+-- >>> toDynamic (x:<xs)
+-- UnsafeArray [4] [0,1,2,3]
+pattern (:<) ::
+  forall s sh st a pos ts os ls ds.
+  (HasShape s,
+   HasShape sh,
+   HasShape st,
+   KnownNat pos,
+   HasShape (Eval (AsSingleton st)),
+   HasShape (Eval (AsSingleton sh)),
+   s ~ Eval (IncAt 0 (Eval (AsSingleton st))),
+   pos ~ Eval ((Fcf.-) (Eval (UnsafeGetIndex 0 st)) 1),
+   ds ~ '[0],
+   HasShape (Eval (AsSingleton s)),
+   sh ~ Eval (DeleteDims ds (Eval (AsSingleton s))),
+   HasShape ls,
+   HasShape os,
+   ts ~ Eval (Zip ds (Eval (Zip os ls))),
+   os ~ Eval (Replicate (Eval (Rank ds)) 1),
+   ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds (Eval (AsSingleton s))))),
+   st ~ Eval (ReplaceDims ds ls (Eval (AsSingleton s))),
+   ds ~ Eval (Map Fst ts),
+   ls ~ Eval (Map Snd (Eval (Map Snd ts))),
+   os ~ Eval (Map Fst (Eval (Map Snd ts)))) =>
+  Array sh a -> Array st a -> Array s a
+pattern x :< xs <- (uncons -> (x, xs))
+  where
+    x :< xs = cons x xs
+
+infix 5 :<
+
+{-# COMPLETE (:<) :: Array #-}
+
+-- | Convenience pattern for row extraction and consolidation at the end of an Array.
+--
+-- >>> (xs:>x) = array @'[4] [0..3]
+-- >>> toDynamic x
+-- UnsafeArray [] [3]
+-- >>> toDynamic xs
+-- UnsafeArray [3] [0,1,2]
+-- >>> toDynamic (xs:>x)
+-- UnsafeArray [4] [0,1,2,3]
+pattern (:>) ::
+  forall si sl s a pos ds ls os ts.
+  (HasShape si,
+   HasShape sl,
+   HasShape s,
+   HasShape (Eval (AsSingleton si)),
+   HasShape (Eval (AsSingleton sl)),
+   s ~ Eval (IncAt 0 (Eval (AsSingleton si))),
+   KnownNat pos,
+   pos ~ Eval (UnsafeGetIndex 0 si),
+   HasShape ds,
+   HasShape ls,
+   HasShape os,
+   HasShape (Eval (AsSingleton s)),
+   ds ~ '[0],
+   ts ~ Eval (Zip ds (Eval (Zip os ls))),
+   os ~ Eval (Replicate (Eval (Rank ds)) 0),
+   ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds (Eval (AsSingleton s))))),
+   si ~ Eval (ReplaceDims ds ls (Eval (AsSingleton s))),
+   ds ~ Eval (Map Fst ts),
+   ls ~ Eval (Map Snd (Eval (Map Snd ts))),
+   os ~ Eval (Map Fst (Eval (Map Snd ts))),
+   sl ~ Eval (DeleteDims ds (Eval (AsSingleton s)))
+   ) =>
+  Array si a -> Array sl a -> Array s a
+pattern xs :> x <- (unsnoc -> (xs, x))
+  where
+    xs :> x = snoc xs x
+
+infix 5 :>
+
+{-# COMPLETE (:>) :: Array #-}
+
+-- | GENERATE an array of uniform random variates between a range.
 --
 -- >>> import System.Random.Stateful hiding (uniform)
 -- >>> g <- newIOGenM (mkStdGen 42)

@@ -62,6 +62,7 @@ module NumHask.Array.Shape
     Rank,
     Range,
     rerank,
+    Rerank,
     size,
     Size,
     Min,
@@ -115,8 +116,8 @@ module NumHask.Array.Shape
     Fcf.Eval,
 
     -- * Assertions
-    checkIndex,
-    CheckIndex,
+    isFin,
+    IsFin,
 
     -- * index-only operations
     reverseIndex,
@@ -289,6 +290,23 @@ rerank r xs =
     <> drop (r' - r + 1) xs
   where
     r' = rank xs
+
+-- | Create a new rank by adding ones to the left, if the new rank is greater, or combining dimensions (from left to right) into rows, if the new rank is lower.
+--
+-- FIXME: works in ghci
+-- >> :k! Eval (Rerank 4 [2,3,4])
+-- ...
+-- = [1, 2, 3, 4]
+-- >> :k! Eval (Rerank 2 [2,3,4])
+-- ...
+-- = [6, 4]
+data Rerank :: Nat -> [Nat] -> Exp [Nat]
+
+type instance Eval (Rerank r xs) =
+  If (Eval ((Fcf.>) r (Eval (Rank xs))))
+  (Eval (Eval (Replicate (Eval ((Fcf.-) r (Eval (Rank xs)))) 1) Fcf.++ xs))
+  (Eval ((Fcf.++) ('[Eval (Size (Eval (Take ((Eval (Rank xs)) - r + 1) xs)))])
+    (Eval (Drop (Eval (Rank xs) + 1 - r) xs))))
 
 -- | Total number of elements (if the list is the shape of a hyper-rectangular array).
 --
@@ -463,17 +481,6 @@ type family GetIndexImpl (n :: Nat) (xs :: [k]) where
   GetIndexImpl 0 (x ': _) = 'Just x
   GetIndexImpl n (_ ': xs) = GetIndexImpl (n - 1) xs
 
--- | UnsafeGetIndex i xs is the i'th element of xs (or error if out-of-bounds)
---
--- >>> :k! Eval (UnsafeGetIndex 1 [2,3,4])
--- ...
--- = 3
--- >>> :k! Eval (UnsafeGetIndex 3 [2,3,4])
--- ...
--- = (TypeError ...)
-data UnsafeGetIndex :: Nat -> [a] -> Exp a
-type instance Eval (UnsafeGetIndex n xs) = Eval (FromMaybe (L.TypeError (L.Text "UnsafeGetIndex out of bounds")) (Eval (GetIndex n xs)))
-
 -- | unsafeGetIndex i xs is the i'th element of xs (or error if out-of-bounds)
 --
 -- >>> unsafeGetIndex 1 [2,3,4]
@@ -485,6 +492,17 @@ unsafeGetIndex :: Int -> [Int] -> Int
 unsafeGetIndex 0 (s : _) = s
 unsafeGetIndex n (_ : s) = unsafeGetIndex (n - 1) s
 unsafeGetIndex _ _ = error "unsafeGetIndex outside bounds"
+
+-- | UnsafeGetIndex i xs is the i'th element of xs (or error if out-of-bounds)
+--
+-- >>> :k! Eval (UnsafeGetIndex 1 [2,3,4])
+-- ...
+-- = 3
+-- >>> :k! Eval (UnsafeGetIndex 3 [2,3,4])
+-- ...
+-- = (TypeError ...)
+data UnsafeGetIndex :: Nat -> [a] -> Exp a
+type instance Eval (UnsafeGetIndex n xs) = Eval (FromMaybe (L.TypeError (L.Text "UnsafeGetIndex out of bounds")) (Eval (GetIndex n xs)))
 
 -- | minimum dimension
 --
@@ -905,7 +923,7 @@ type instance Eval (Concatenate i s0 s1) =
 data ConcatenateOk :: Nat -> t Nat -> t Nat -> Exp Bool
 
 type instance Eval (ConcatenateOk i s0 s1) =
-  Eval (CheckIndex i (Eval (Rank s0)))
+  Eval (IsFin i (Eval (Rank s0)))
       && Eval (TyEq (Eval (DeleteDim i s0)) (Eval (DeleteDim i s1)))
       && Eval (TyEq (Eval (Rank s0)) (Eval (Rank s1)))
 
@@ -934,7 +952,7 @@ data ReorderOk :: t Nat -> t Nat -> Exp Bool
 
 type instance Eval (ReorderOk ds xs) =
   Eval (TyEq (Eval (Rank ds)) (Eval (Rank xs))) &&
-  Eval (And =<< Map (Flip CheckIndex (Eval (Rank ds))) xs)
+  Eval (And =<< Map (Flip IsFin (Eval (Rank ds))) xs)
 
 -- | remove 1's from a list
 --
@@ -978,27 +996,26 @@ type instance Eval (ExpandWindows ws ds) =
 indexWindows :: Int -> [Int] -> [Int]
 indexWindows r ds = List.zipWith (+) (List.take r ds) (List.take r (List.drop r ds)) <> List.drop (r + r) ds
 
--- | Check if i is a valid index of a dimension of length l
+-- | Check if i is a valid Fin (aka in-bounds index of a dimension)
 --
--- >>> checkIndex 0 2
+-- >>> isFin 0 2
 -- True
--- >>> checkIndex 2 2
+-- >>> isFin 2 2
 -- False
-checkIndex :: Int -> Int -> Bool
-checkIndex i n = (zero <= i && i + one <= n)
+isFin :: Int -> Int -> Bool
+isFin i d = (zero <= i && i + one <= d)
 
--- | Check if i is a valid index of a dimension of length l
--- FIXME: rename to In
+-- | Check if i is a valid Fin (aka in-bounds index of a dimension)
 --
--- >>> :k! Eval (CheckIndex 0 2)
+-- >>> :k! Eval (IsFin 0 2)
 -- ...
 -- = True
--- >>> :k! Eval (CheckIndex 2 2)
+-- >>> :k! Eval (IsFin 2 2)
 -- ...
 -- = False
-data CheckIndex :: Nat -> Nat -> Exp Bool
+data IsFin :: Nat -> Nat -> Exp Bool
 
-type instance Eval (CheckIndex x d) =
+type instance Eval (IsFin x d) =
   Eval ((Fcf.<) x d)
 
 -- | reverse an index along specific dimensions.

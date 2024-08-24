@@ -63,7 +63,6 @@ module NumHask.Array.Dynamic
     zipWith,
     zipWithSafe,
     modify,
-    diff,
     imap,
 
     -- ** Operator generalisers
@@ -84,9 +83,7 @@ module NumHask.Array.Dynamic
     slice,
 
     -- ** Selection
-    takeDs,
     takes,
-    dropDs,
     drops,
     indexes,
     heads,
@@ -634,14 +631,6 @@ zipWithSafe f (UnsafeArray s v) (UnsafeArray s' v') = bool (Left (NumHaskExcepti
 modify :: [Int] -> (a -> a) -> Array a -> Array a
 modify ds f a = tabulate (shape a) (\s -> bool id f (s == ds) (index a s))
 
--- | Row-wise difference an array using the supplied function with a lag.
---
--- >>> pretty $ diff 1 (-) (range [3,2])
--- [[2,2],
---  [2,2]]
-diff :: Int -> (a -> a -> b) -> Array a -> Array b
-diff n f a = zipWith f (rowWise (dimsWise drop) [n] a) (rowWise (dimsWise drop) [-n] a)
-
 -- | Maps an index function at element-level.
 --
 -- >>> pretty $ imap (\xs x -> x - sum xs) a
@@ -694,6 +683,13 @@ dimsWise f xs a = foldl' (\a' (d, x) -> f d x a') a xs
 --  [[12],
 --   [16],
 --   [20]]]
+-- >>> pretty $ take 2 (-1) a
+-- [[[3],
+--   [7],
+--   [11]],
+--  [[15],
+--   [19],
+--   [23]]]
 take ::
   Int ->
   Int ->
@@ -706,13 +702,20 @@ take d t a = backpermute dsNew (S.modifyDim d (\x -> x + bool 0 (d' + t) (t < 0)
 
 -- | Drop the top-most elements across the specified dimension. Negative values take the bottom-most.
 --
--- >>> pretty $ drop 2 2 a
--- [[[2,3],
---   [6,7],
---   [10,11]],
---  [[14,15],
---   [18,19],
---   [22,23]]]
+-- >>> pretty $ drop 2 1 a
+-- [[[1,2,3],
+--   [5,6,7],
+--   [9,10,11]],
+--  [[13,14,15],
+--   [17,18,19],
+--   [21,22,23]]]
+-- >>> pretty $ D.drop 2 (-1) a
+-- [[[0,1,2],
+--   [4,5,6],
+--   [8,9,10]],
+--  [[12,13,14],
+--   [16,17,18],
+--   [20,21,22]]]
 drop ::
   Int ->
   Int ->
@@ -720,8 +723,7 @@ drop ::
   Array a
 drop d t a = backpermute dsNew (S.modifyDim d (\x -> x + bool t 0 (t < 0))) a
   where
-    dsNew = S.replaceDim d (d' - abs t)
-    d' = shape a !! d
+    dsNew = S.replaceDim d ((S.unsafeGetIndex d (shape a)) - abs t)
 
 -- | Select an index along a dimension.
 --
@@ -867,19 +869,6 @@ slice d (o, l) a = backpermute (S.replaceDim d l) (S.modifyDim d (+ o)) a
 
 -- * multi-dimension operators
 
--- | Takes the top-most elements across all dimensions. Negative values take the bottom-most.
---
--- > takeDs == rowWise take
---
--- >>> pretty $ takeDs [1,2,-3] a
--- [[[1,2,3],
---   [5,6,7]]]
-takeDs ::
-  [Int] ->
-  Array a ->
-  Array a
-takeDs ts a = rowWise takes ts a
-
 -- | Takes the top-most elements across the supplied dimension,n tuples. Negative values take the bottom-most.
 --
 -- > takes == dimsWise take
@@ -899,18 +888,6 @@ takes ts a = backpermute dsNew (List.zipWith (+) start) a
     ds = fmap fst ts
     xs = fmap snd ts
     xsAbs = fmap abs xs
-
--- | Drops the top-most elements across all dimensions. Negative values take the bottom-most.
---
--- > dropDs == rowWise drop
---
--- >>> pretty $ dropDs [1,2,-3] a
--- [[[20]]]
-dropDs ::
-  [Int] ->
-  Array a ->
-  Array a
-dropDs ts a = rowWise drops ts a
 
 -- | Drops the top-most elements. Negative values drop the bottom-most.
 --
@@ -1398,6 +1375,7 @@ isInfixOf :: (Eq a) => Array a -> Array a -> Bool
 isInfixOf p a = or $ find p a
 
 -- * shape manipulation
+
 -- | Fill an array with the supplied value without regard to the original shape or cut the array values to match array size.
 --
 -- > validate (def x a) == True
