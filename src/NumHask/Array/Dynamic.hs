@@ -1337,7 +1337,10 @@ findNoOverlap :: (Eq a) => Array a -> Array a -> Array Bool
 findNoOverlap i a = r
   where
     iexp = rerank (rank a) i
+    f :: Array Bool
     f = find iexp a
+
+    cl :: [Int] -> [[Int]]
     cl sh = List.filter (P.not . any (> 0) . List.init) $ List.filter (P.not . all (>= 0)) $ arrayAs $ tabulate ((\x -> 2 * x - 1) <$> sh) (\s -> List.zipWith (\x x0 -> x - x0 + 1) s sh)
     go r' s = index f s && all (P.not . index r') (List.filter (\x -> S.inside x (shape f)) $ fmap (List.zipWith (+) s) (cl (shape iexp)))
     r = tabulate (shape f) (go r)

@@ -30,11 +30,15 @@
 
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
-  ( valueOf,
+  ( -- * Naturals
+    withSomeNat,
+    valueOf,
+    int,
     Shape (..),
     HasShape (..),
     shapeOf,
     rankOf,
+    sizeOf,
     Fin (..),
     safeFin,
     Fins (..),
@@ -111,13 +115,15 @@ module NumHask.Array.Shape
     squeeze,
     Squeeze,
     expandWindows,
-    indexWindows,
     ExpandWindows,
+    indexWindows,
     Fcf.Eval,
 
     -- * Assertions
     isFin,
     IsFin,
+    isFins,
+    IsFins,
 
     -- * index-only operations
     reverseIndex,
@@ -159,17 +165,33 @@ import Control.Monad
 -- >>> :set -XRebindableSyntax
 -- >>> import NumHask.Prelude
 -- >>> import NumHask.Array.Shape as S
+-- >>> import GHC.TypeNats
 -- >>> import Fcf (Eval)
+
+-- | Convert a Nat into an SNat n value, and apply it to a context with both a KnownNat constraint and an SNat input.
+--
+-- 'withSomeSNat' can be used where there is no KnownNat constraint, but this is almost never given the library design:
+--
+--
+withSomeNat :: forall r. Nat -> (forall (n :: Nat). KnownNat n => SNat n -> r) -> r
+withSomeNat n k = withSomeSNat n $
+               \(sn :: (SNat n)) -> withKnownNat sn $ k sn
 
 -- | Get the value of a type level Nat.
 -- Use with explicit type application
 --
-
 -- >>> valueOf @42
 -- 42
 valueOf :: forall n. (KnownNat n) => Int
 valueOf = Prelude.fromIntegral $ natVal (Proxy :: Proxy n)
 {-# INLINE valueOf #-}
+
+-- | Get the value of an SNat as an Int.
+--
+-- >>> int (SNat @42)
+-- 42
+int :: SNat n -> Int
+int = Prelude.fromIntegral . fromSNat
 
 -- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
 --
@@ -205,6 +227,14 @@ shapeOf = shapeVal (toShape @s)
 rankOf :: forall s. (HasShape s) => Int
 rankOf = length (shapeVal (toShape @s))
 {-# INLINE rankOf #-}
+
+-- | The size of a 'Shape'.
+--
+-- >>> sizeOf @[2,3,4]
+-- 24
+sizeOf :: forall s. (HasShape s) => Int
+sizeOf = product (shapeVal (toShape @s))
+{-# INLINE sizeOf #-}
 
 -- | Fin most often represents a (finite) zer-based index for a single dimension (of a multi-dimensioned hyper-rectangular array).
 type role Fin nominal
@@ -556,7 +586,7 @@ data DeleteDim :: Nat -> [Nat] -> Exp [Nat]
 type instance Eval (DeleteDim i ds) =
   Eval (LiftM2 (Fcf.++) (Take i ds) (Drop (i + 1) ds))
 
--- | /insertDim d i s/ inserts a new dimension to shape /s/ at position /i/
+-- | /insertDim d i s/ inserts a new dimension of value i to shape /s/ at position /d/
 --
 -- >>> insertDim 1 3 [2,4]
 -- [2,3,4]
@@ -565,7 +595,7 @@ type instance Eval (DeleteDim i ds) =
 insertDim :: Int -> Int -> [Int] -> [Int]
 insertDim d i s = take d s ++ (i : drop d s)
 
--- | /insertDim d i s/ inserts a new dimension to shape /s/ at position /i/
+-- | /insertDim d i s/ inserts a new dimension of value i to shape /s/ at position /d/
 --
 -- >>> :k! Eval (InsertDim 1 3 [2,4])
 -- ...
@@ -1017,6 +1047,28 @@ data IsFin :: Nat -> Nat -> Exp Bool
 
 type instance Eval (IsFin x d) =
   Eval ((Fcf.<) x d)
+
+-- | Check if i is a valid Fins (aka in-bounds index of a Shape)
+--
+-- >>> isFins [0,1] [2,2]
+-- True
+-- >>> isFins [0,1] [2,1]
+-- False
+isFins :: [Int] -> [Int] -> Bool
+isFins xs ds = and $ zipWith isFin xs ds
+
+-- | Check if i is a valid Fins (aka in-bounds index of a Shape)
+--
+-- >>> :k! Eval (IsFins [0,1] [2,2])
+-- ...
+-- = True
+-- >>> :k! Eval (IsFins [0,1] [2,1])
+-- ...
+-- = False
+data IsFins :: [Nat] -> [Nat] -> Exp Bool
+
+type instance Eval (IsFins xs ds) =
+  Eval (And (Eval (ZipWith IsFin xs ds)))
 
 -- | reverse an index along specific dimensions.
 --

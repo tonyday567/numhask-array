@@ -59,11 +59,14 @@ library
         , distributive >=0.4 && <0.7
         , first-class-families
         , numhask      >=0.12 && <0.13
+        , ghc-typelits-knownnat
         , prettyprinter >= 1.7 && <1.8
         , random        >=1.2 && <1.3
         , reflection    >= 2.1 && <2.2
         , vector       >=0.12.3 && <0.14
         , vector-algorithms
+        , QuickCheck
+        , quickcheck-instances
     exposed-modules:
         NumHask.Array
         NumHask.Array.Dynamic
