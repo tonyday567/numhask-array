@@ -787,8 +787,6 @@ take ::
   forall s s' a d t.
   ( HasShape s,
     HasShape s',
-    KnownNat d,
-    KnownNat t,
     Eval (IsFin d (Eval (Rank s))) ~ True,
     Eval (SetIndex d (Eval (Min t (Eval (UnsafeGetIndex d s)))) s) ~ s'
   ) =>
@@ -811,8 +809,6 @@ takeB ::
   forall s s' a d t.
   ( HasShape s,
     HasShape s',
-    KnownNat d,
-    KnownNat t,
     Eval (IsFin d (Eval (Rank s))) ~ True,
     Eval (SetIndex d (Eval (Min t (Eval (UnsafeGetIndex d s)))) s) ~ s'
   ) =>
@@ -820,7 +816,7 @@ takeB ::
   SNat t ->
   Array s a ->
   Array s' a
-takeB _ _ a = unsafeBackpermute (\s -> modifyDim (valueOf @d) (\x -> x + (unsafeGetIndex (valueOf @d) (shape a)) - (valueOf @t)) s) a
+takeB d t a = unsafeBackpermute (\s -> modifyDim (int d) (\x -> x + (unsafeGetIndex (int d) (shape a)) - (int t)) s) a
 
 -- | Drop the top-most elements across the specified dimension.
 --
@@ -835,8 +831,6 @@ drop ::
   forall s s' a d t.
   ( HasShape s,
     HasShape s',
-    KnownNat d,
-    KnownNat t,
     Eval (IsFin d (Eval (Rank s))) ~ True,
     Eval (SetIndex d (Eval ((Fcf.-) (Eval (UnsafeGetIndex d s)) t)) s) ~ s'
   ) =>
@@ -844,7 +838,7 @@ drop ::
   SNat t ->
   Array s a ->
   Array s' a
-drop _ _ a = unsafeBackpermute (S.modifyDim (valueOf @d) (\x -> x + bool (valueOf @t) 0 ((valueOf @t) < 0))) a
+drop d t a = unsafeBackpermute (S.modifyDim (int d) (\x -> x + bool (int t) 0 ((int t) < 0))) a
 
 -- | Drop the bottom-most elements across the specified dimension.
 --
@@ -859,8 +853,6 @@ dropB ::
   forall s s' a d t.
   ( HasShape s,
     HasShape s',
-    KnownNat d,
-    KnownNat t,
     Eval (IsFin d (Eval (Rank s))) ~ True,
     Eval (SetIndex d (Eval ((Fcf.-) (Eval (UnsafeGetIndex d s)) t)) s) ~ s'
   ) =>
@@ -878,24 +870,22 @@ dropB _ _ a = unsafeBackpermute id a
 --  [15,19,23]]
 select ::
   forall d x a s s'.
-  (KnownNat d,
-   KnownNat x,
-   HasShape s,
+  (HasShape s,
    HasShape s',
    s' ~ Eval (DeleteDim d s)) =>
   SNat d ->
   SNat x ->
   Array s a ->
   Array  s' a
-select _ _ a = unsafeBackpermute (S.insertDim (valueOf @d) (valueOf @x)) a
+select d x a = unsafeBackpermute (S.insertDim (int d) (int x)) a
 
 -- | Concatenate along a dimension.
 --
--- >>> shape $ concatenate (Proxy :: Proxy 1) a a
+-- >>> shape $ concatenate (SNat @1) a a
 -- [2,6,4]
--- >>> toDynamic $ concatenate (Proxy :: Proxy 0) (toScalar 1) (toScalar 2)
+-- >>> toDynamic $ concatenate (SNat @0) (toScalar 1) (toScalar 2)
 -- UnsafeArray [2] [1,2]
--- >>> toDynamic $ concatenate (Proxy :: Proxy 0) (array @'[1] [0]) (array @'[3] [1..3])
+-- >>> toDynamic $ concatenate (SNat @0) (array @'[1] [0]) (array @'[3] [1..3])
 -- UnsafeArray [4] [0,1,2,3]
 concatenate ::
   forall a s0 s1 d s.
@@ -903,14 +893,13 @@ concatenate ::
     HasShape s0,
     HasShape s1,
     HasShape s,
-    HasShape (Eval (AsSingleton s0)),
-    KnownNat d
+    HasShape (Eval (AsSingleton s0))
   ) =>
-  Proxy d ->
+  SNat d ->
   Array s0 a ->
   Array s1 a ->
   Array s a
-concatenate _ a0 a1 = tabulate (go . fromFins)
+concatenate d a0 a1 = tabulate (go . fromFins)
   where
     go s =
       bool
@@ -918,14 +907,14 @@ concatenate _ a0 a1 = tabulate (go . fromFins)
         ( index
             a1
             ( UnsafeFins $ insertDim
-                d
-                ((s !! d) - (ds0 !! d))
-                (deleteDim d s)
+                d'
+                ((s !! d') - (ds0 !! d'))
+                (deleteDim d' s)
             )
         )
-        ((s !! d) >= (ds0 !! d))
+        ((s !! d') >= (ds0 !! d'))
     ds0 = shape (asSingleton a0)
-    d = valueOf @d
+    d' = int d
 
 -- | Insert along a dimension at a position.
 --
@@ -1002,7 +991,6 @@ append ::
     s' ~ Eval (IncAt d (Eval (AsSingleton s))),
     KnownNat pos,
     pos ~ Eval (UnsafeGetIndex d s),
-    KnownNat d,
     HasShape s,
     HasShape si,
     HasShape s'
@@ -1011,7 +999,7 @@ append ::
   Array s a ->
   Array si a ->
   Array s' a
-append d = insert d (valueOf @pos)
+append d = insert d (int (SNat :: SNat pos))
 
 -- | Insert along a dimension at the beginning.
 --
@@ -1027,9 +1015,7 @@ prepend ::
   ( HasShape (Eval (AsSingleton s)),
     HasShape (Eval (AsSingleton si)),
     s' ~ Eval (IncAt d (Eval (AsSingleton s))),
-    KnownNat pos,
     pos ~ Eval ((Fcf.-) (Eval (UnsafeGetIndex d s)) 1),
-    KnownNat d,
     HasShape s,
     HasShape si,
     HasShape s'
@@ -1053,11 +1039,13 @@ couple :: forall a s s' se.
    se ~ Eval (InsertDim 0 1 s)
   ) =>
   Array s a -> Array s a -> Array s' a
-couple a a' = concatenate (Proxy :: Proxy 0) (elongate (SNat @0) a) (elongate (SNat @0) a')
+couple a a' = concatenate (SNat @0) (elongate (SNat @0) a) (elongate (SNat @0) a')
 
 -- | Slice along a dimension with the supplied (offset, length).
 --
--- >>> pretty $ slice (SNat @2) (Proxy :: Proxy '(1,2)) a
+-- FIXME: consider putting offset and length back together in a tuple.
+--
+-- >>> pretty $ slice (SNat @2) (SNat @1) (SNat @2) a
 -- [[[1,2],
 --   [5,6],
 --   [9,10]],
@@ -1065,19 +1053,16 @@ couple a a' = concatenate (Proxy :: Proxy 0) (elongate (SNat @0) a) (elongate (S
 --   [17,18],
 --   [21,22]]]
 slice ::
-  forall a d offl off l s s'.
+  forall a d off l s s'.
   (HasShape s,
    HasShape s',
-   KnownNat d,
-   KnownNat off,
-   off ~ Eval (Fst offl),
-   l ~ Eval (Snd offl),
    Eval (SetIndex d l s) ~ s') =>
   SNat d ->
-  Proxy offl ->
+  SNat off ->
+  SNat l ->
   Array s a ->
   Array s' a
-slice _ _ a = unsafeBackpermute (S.modifyDim (valueOf @d) (+ (valueOf @off))) a
+slice d off _ a = unsafeBackpermute (S.modifyDim (int d) (+ (int off))) a
 
 -- | Takes the top-most elements across the supplied dimension,n tuples.
 --
@@ -2009,7 +1994,6 @@ rerank ::
   forall r s s' a.
   (HasShape s,
    HasShape s',
-   KnownNat r,
    s' ~ Eval (Rerank r s)) =>
   SNat r -> Array s a -> Array s' a
 rerank _ a = unsafeModifyShape a
@@ -2093,7 +2077,6 @@ squeeze = unsafeModifyShape
 elongate ::
   (HasShape s,
    HasShape s',
-   KnownNat d,
    s' ~ Eval (InsertDim d 1 s)) =>
   SNat d ->
   Array s a ->
@@ -2124,15 +2107,13 @@ inflate ::
   forall s' s d x a.
   (HasShape s,
    HasShape s',
-   KnownNat d,
-   KnownNat x,
    Eval (IsFin d (Eval (Rank s))) ~ True,
    s' ~ Eval (InsertDim d x s)) =>
   SNat d ->
   SNat x ->
   Array s a ->
   Array s' a
-inflate _ _ a = unsafeBackpermute (S.deleteDim (valueOf @d)) a
+inflate d _ a = unsafeBackpermute (S.deleteDim (int d)) a
 
 -- | Concatenate and replace dimensions, creating a new dimension at the supplied postion.
 --
@@ -2146,16 +2127,15 @@ concats ::
   (HasShape s,
    HasShape s',
    HasShape ds,
-   KnownNat newd,
    s' ~ Eval (InsertDim newd (Eval (Size (Eval (TakeDims ds s)))) (Eval (DeleteDims ds s)))) =>
   Proxy ds ->
   SNat newd ->
   Array s a ->
   Array s' a
-concats _ _ a = unsafeBackpermute unconcatDims a
+concats _ newd a = unsafeBackpermute unconcatDims a
   where
     unconcatDims s = S.insertDims (List.zip ds (S.shapen (S.takeDims ds (shape a)) (S.unsafeGetIndex n s))) (S.deleteDim n s)
-    n = valueOf @newd
+    n = int newd
     ds = shapeOf @ds
 
 -- | Reverses element order along specified dimensions.
@@ -2293,7 +2273,7 @@ ordersBy ds c a = unsafeModifyVector (orderByV c) (extracts ds a)
 --
 -- >>> a = array @[2,3] [0..5]
 -- >>> b = array @'[3] [6..8]
--- >>> pretty $ telecasts (Proxy :: Proxy '[1]) (Proxy :: Proxy '[0]) (concatenate (Proxy :: Proxy 0)) a b
+-- >>> pretty $ telecasts (Proxy :: Proxy '[1]) (Proxy :: Proxy '[0]) (concatenate (SNat @0)) a b
 -- [[0,3,6],
 --  [1,4,7],
 --  [2,5,8]]
