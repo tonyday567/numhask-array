@@ -34,8 +34,12 @@ module NumHask.Array.Shape
     withSomeNat,
     valueOf,
     int,
-    Shape (..),
-    HasShape (..),
+    SNats (..),
+    pattern SNats,
+    fromSNats,
+    KnownNats (..),
+    natVals,
+    HasShape,
     shapeOf,
     rankOf,
     sizeOf,
@@ -193,6 +197,52 @@ valueOf = Prelude.fromIntegral $ natVal (Proxy :: Proxy n)
 int :: SNat n -> Int
 int = Prelude.fromIntegral . fromSNat
 
+-- | Mimics SNat from GHC.TypeNats
+newtype SNats (ns :: [Nat]) = UnsafeSNats [Nat]
+
+instance (KnownNats ns) => Show (SNats ns)
+  where
+    show s = "SNats @" <> bool "" "'" (length (natVals s) < 2) <> "[" <> mconcat (List.intersperse ", " (show <$> (natVals s))) <> "]"
+
+type role SNats nominal
+
+pattern SNats :: forall ns. () => KnownNats ns => SNats ns
+pattern SNats <- (knownNatsInstance -> KnownNatsInstance)
+  where SNats = natsSing
+
+fromSNats :: SNats s -> [Nat]
+fromSNats (UnsafeSNats s) = s
+
+-- An internal data type that is only used for defining the SNat pattern
+-- synonym.
+data KnownNatsInstance (ns :: [Nat]) where
+  KnownNatsInstance :: KnownNats ns => KnownNatsInstance ns
+
+-- An internal function that is only used for defining the SNat pattern
+-- synonym.
+knownNatsInstance :: SNats ns -> KnownNatsInstance ns
+knownNatsInstance dims = withKnownNats dims KnownNatsInstance
+
+-- | Reflect a list of Nats
+class KnownNats (ns :: [Nat]) where
+  natsSing :: SNats ns
+
+instance KnownNats '[] where
+  natsSing = UnsafeSNats []
+
+instance (KnownNat n, KnownNats s) => KnownNats (n ': s)
+  where
+    natsSing = UnsafeSNats (fromSNat (SNat :: SNat n) : fromSNats (SNats :: SNats s))
+
+natVals :: forall ns proxy. KnownNats ns => proxy ns -> [Nat]
+natVals _ = case natsSing :: SNats ns of
+              UnsafeSNats xs -> xs
+
+withKnownNats :: forall ns rep (r :: TYPE rep).
+                SNats ns -> (KnownNats ns => r) -> r
+withKnownNats = withDict @(KnownNats ns)
+
+{-
 -- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
 --
 -- >>> toShape @[2,3,4]
@@ -211,13 +261,16 @@ instance HasShape '[] where
 
 instance (KnownNat n, HasShape s) => HasShape (n : s) where
   toShape = Shape $ Prelude.fromIntegral (natVal (Proxy :: Proxy n)) : shapeVal (toShape :: Shape s)
+-}
 
--- | Supply the value-level of a 'HasShape'
+type HasShape = KnownNats
+
+-- | Supply the value-level of a 'HasShape' as an [Int]
 --
 -- >>> shapeOf @[2,3,4]
 -- [2,3,4]
 shapeOf :: forall s. (HasShape s) => [Int]
-shapeOf = shapeVal (toShape @s)
+shapeOf = Prelude.fromIntegral <$> natVals (Proxy :: Proxy s)
 {-# INLINE shapeOf #-}
 
 -- | The rank of a 'Shape'.
@@ -225,7 +278,7 @@ shapeOf = shapeVal (toShape @s)
 -- >>> rankOf @[2,3,4]
 -- 3
 rankOf :: forall s. (HasShape s) => Int
-rankOf = length (shapeVal (toShape @s))
+rankOf = length (shapeOf @s)
 {-# INLINE rankOf #-}
 
 -- | The size of a 'Shape'.
@@ -233,7 +286,7 @@ rankOf = length (shapeVal (toShape @s))
 -- >>> sizeOf @[2,3,4]
 -- 24
 sizeOf :: forall s. (HasShape s) => Int
-sizeOf = product (shapeVal (toShape @s))
+sizeOf = product (shapeOf @s)
 {-# INLINE sizeOf #-}
 
 -- | Fin most often represents a (finite) zer-based index for a single dimension (of a multi-dimensioned hyper-rectangular array).
