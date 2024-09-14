@@ -25,6 +25,9 @@ module NumHask.Array.Fixed
     unsafeModifyShape,
     unsafeModifyVector,
 
+    SomeArray (..),
+    someArray,
+
     -- * Conversion
     FromVector (..),
     toDynamic,
@@ -76,6 +79,9 @@ module NumHask.Array.Fixed
 
     -- ** Single-dimension operators
     take,
+    example_take,
+    example_take_1,
+    example_take_axiom,
     takeB,
     drop,
     dropB,
@@ -94,6 +100,7 @@ module NumHask.Array.Fixed
     drops,
     dropBs,
     indexes,
+    indexesF,
     indexesT,
     indexesExcept,
     heads,
@@ -218,6 +225,7 @@ import NumHask.Array.Sort
 import Type.Reflection
 import Test.QuickCheck hiding (tabulate, vector)
 import Test.QuickCheck.Instances.Natural ()
+import Data.Constraint ((\\))
 
 -- $setup
 --
@@ -476,6 +484,22 @@ unsafeModifyShape a = unsafeArray (asVector a)
 unsafeModifyVector :: (HasShape s) => (FromVector u a) => (FromVector v b) => (u -> v) -> Array s a -> Array s b
 unsafeModifyVector f a = unsafeArray (asVector (f (vectorAs (asVector a))))
 
+data SomeArray a = forall s. SomeArray (SNats s) (Array s a)
+
+-- TODO: other derivings
+deriving instance (Show a) => Show (SomeArray a)
+
+someArray :: forall s t a. FromVector t a => SNats s -> t -> SomeArray a
+someArray s t = SomeArray s (Array (asVector t))
+
+-- TODO: debug this
+-- show . fmap (\(SomeArray _ a) -> sum (asVector a)) <$> (sample' arbitrary :: IO [SomeArray Int])
+instance (Arbitrary a) => Arbitrary (SomeArray a) where
+  arbitrary = do
+    s <- arbitrary :: Gen [Small Nat]
+    v <- V.replicateM (product (Prelude.fromIntegral <$> s)) arbitrary
+    withSomeSNats (Prelude.take 2 (getSmall <$> s)) $ \s' -> pure (someArray s' v)
+
 -- | convert to a dynamic array with shape at the value level.
 --
 -- >>> toDynamic a
@@ -552,7 +576,6 @@ unsafeIndex a xs = index a (UnsafeFins xs)
 (!) :: (HasShape s) => Array s a -> [Int] -> a
 (!) a xs = index a (UnsafeFins xs)
 
-
 -- | Extract an element at an index, safely.
 --
 -- >>> a !? [1,2,3]
@@ -588,14 +611,14 @@ unsafeBackpermute f a = tabulate (index a . UnsafeFins . f . fromFins)
 -- >>> s = array @'[] @Int [3]
 -- >>> :t fromScalar s
 -- fromScalar s :: Int
-fromScalar :: (HasShape ('[] :: [Nat])) => Array ('[] :: [Nat]) a -> a
+fromScalar :: Array '[] a -> a
 fromScalar a = index a (UnsafeFins [])
 
 -- | Convert a number to a scalar.
 --
 -- >>> :t toScalar @Int 2
 -- toScalar @Int 2 :: Array '[] Int
-toScalar :: a -> Array ('[] :: [Nat]) a
+toScalar :: a -> Array '[] a
 toScalar a = Array (V.singleton a)
 
 -- | Is the Array a Scalar?
@@ -744,35 +767,33 @@ imap f a = zipWith f indices a
 --
 -- > rowWise f xs = f [0..rank xs - 1] xs
 --
--- >>> toDynamic $ rowWise indexesT (Proxy :: Proxy [1,0]) a
+-- >>> toDynamic $ rowWise indexesT (S.SNats @[1,0]) a
 -- UnsafeArray [4] [12,13,14,15]
 rowWise ::
   forall a ds s s' xs ts.
   ( HasShape s
   , HasShape ds
-  , HasShape xs
   , ds ~ Eval (Range (Eval (Rank xs)))
   , ts ~ Eval (Zip ds xs)) =>
   (Proxy ts -> Array s a -> Array s' a) ->
-  Proxy xs -> Array s a -> Array s' a
+  SNats xs -> Array s a -> Array s' a
 rowWise f _ a = f (Proxy :: Proxy ts) a
 
 -- | Apply a function that takes a (dimension,parameter) list and applies a parameter list to the the last dimensions (in reverse). ie
 --
 -- > colWise f xs = f (List.reverse [0 .. (rank a - 1)]) xs
 --
--- >>> toDynamic $ colWise indexesT (Proxy :: Proxy [1,0]) a
+-- >>> toDynamic $ colWise indexesT (S.SNats @[1,0]) a
 -- UnsafeArray [2] [1,13]
 colWise ::
   forall a ds s s' xs ts.
   ( HasShape s
   , HasShape ds
-  , HasShape xs
   , ts ~ Eval (Zip ds xs)
   -- , ds ~ Eval (Map ((Fcf.-) (Eval ((Fcf.-) (Eval (Rank s)) 1))) (Eval (Range (Eval (Rank xs)))))
   , ds ~ Eval (Take (Eval (Rank xs)) (Eval (Reverse (Eval (Range (Eval (Rank s)))))))) =>
   (Proxy ts -> Array s a -> Array s' a) ->
-  Proxy xs -> Array s a -> Array s' a
+  SNats xs -> Array s a -> Array s' a
 colWise f _ a = f (Proxy :: Proxy ts) a
 
 -- | Take the top-most elements across the specified dimension.
@@ -788,14 +809,42 @@ take ::
   forall s s' a d t.
   ( HasShape s,
     HasShape s',
-    Eval (IsFin d (Eval (Rank s))) ~ True,
-    Eval (SetIndex d (Eval (Min t (Eval (UnsafeGetIndex d s)))) s) ~ s'
+    s' ~ Eval (TakeDim d t s)
   ) =>
   SNat d ->
   SNat t ->
   Array s a ->
   Array s' a
 take _ _ a = unsafeBackpermute id a
+
+example_take :: forall a s. (HasShape s, Show a) => Nat -> Nat -> Array s a -> String
+example_take d t a =
+  withSomeSNat d
+  (\(SNat :: SNat d) ->
+    withSomeSNat t
+    (\(SNat :: SNat t) ->
+      case someTakeDim @d @t @s of
+        SNats -> show $ take (SNat @d) (SNat @t) a
+        _ -> "not matched"))
+
+example_take_1 :: forall a s. (HasShape s, Show a) => Nat -> Nat -> Array s a -> String
+example_take_1 d t a =
+  withSomeSNat d
+  (\(SNat :: SNat d) ->
+    withSomeSNat t
+    (\(SNat :: SNat t) ->
+      case someTakeDim @d @t @s of
+        SNats -> show (someTakeDim @d @t @s) <> " : take " <> show (SNat @d) <> " " <> show (SNat @t) <> " " <> show a
+        _ -> "not matched"))
+
+example_take_axiom :: forall a s. (HasShape s, Show a) => Nat -> Nat -> Array s a -> String
+example_take_axiom d t a =
+  withSomeSNat d
+  (\(SNat :: SNat d) ->
+    withSomeSNat t
+    (\(SNat :: SNat t) ->
+        (show $ (take (SNat @d) (SNat @t) a) \\ axiomTakeDim @d @t @s)
+        ))
 
 -- | Take the bottom-most elements across the specified dimension.
 --
@@ -1156,6 +1205,23 @@ indexes ::
   Array s' a
 indexes _ xs a = unsafeBackpermute (S.insertDims (List.zip (shapeOf @ds) xs)) a
 
+-- | Select by an index along dimensions.
+--
+-- >>> pretty $ indexesF (S.SNats @[0,1]) (S.UnsafeFins [1,1]) a
+-- [16,17,18,19]
+indexesF ::
+  forall ds s s' ts a.
+  ( HasShape s,
+    HasShape s',
+    s' ~ Eval (DeleteDims ds s),
+    ts ~ Eval (TakeDims ds s)
+  ) =>
+  SNats ds ->
+  Fins ts ->
+  Array s a ->
+  Array s' a
+indexesF ds xs a = unsafeBackpermute (S.insertDims (List.zip (ints ds) (fromFins xs))) a
+
 -- | Select by (dimension,index) pairs, supplying as a type.
 --
 -- > pretty $ indexesT (Proxy :: Proxy [ '(0,1), '(1,1)]) a
@@ -1199,10 +1265,10 @@ indexesExcept ds i a = unsafeBackpermute (\s -> insertDims (List.zip (Prelude.fr
 
 -- | Select the first element along the supplied dimensions
 --
--- >>> pretty $ heads (Proxy :: Proxy '[0,2]) a
+-- >>> pretty $ heads (S.SNats @[0,2]) a
 -- [0,4,8]
-heads :: forall a ds s s'. (HasShape s, HasShape s', HasShape ds, s' ~ Eval (DeleteDims ds s)) => Proxy ds -> Array s a -> Array s' a
-heads xs a = indexes xs (replicate (rankOf @s) zero) a
+heads :: forall a ds s s'. (HasShape s, HasShape s', HasShape ds, s' ~ Eval (DeleteDims ds s)) => SNats ds -> Array s a -> Array s' a
+heads ds a = indexesF ds (UnsafeFins $ replicate (rankOf @s) zero) a
 
 -- | Select the last element along the supplied dimensions
 --
@@ -2493,6 +2559,7 @@ uncons ::
    ds ~ '[0],
    HasShape (Eval (AsSingleton s)),
    sh ~ Eval (DeleteDims ds (Eval (AsSingleton s))),
+   sh ~ Eval (Drop 1 s),
    HasShape ls,
    HasShape os,
    ts ~ Eval (Zip ds (Eval (Zip os ls))),
@@ -2504,7 +2571,7 @@ uncons ::
    os ~ Eval (Map Fst (Eval (Map Snd ts)))
   ) =>
   Array s a -> (Array sh a, Array st a)
-uncons a = (heads (Proxy :: Proxy '[0]) a', tails (Proxy :: Proxy '[0]) a')
+uncons a = (heads (SNats @'[0]) a, tails (Proxy :: Proxy '[0]) a')
   where
     a' = asSingleton a
 
@@ -2558,6 +2625,7 @@ pattern (:<) ::
    ds ~ '[0],
    HasShape (Eval (AsSingleton s)),
    sh ~ Eval (DeleteDims ds (Eval (AsSingleton s))),
+   sh ~ Eval (Drop 1 s),
    HasShape ls,
    HasShape os,
    ts ~ Eval (Zip ds (Eval (Zip os ls))),

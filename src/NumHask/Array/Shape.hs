@@ -37,8 +37,10 @@ module NumHask.Array.Shape
     SNats (..),
     pattern SNats,
     fromSNats,
+    ints,
     KnownNats (..),
     natVals,
+    withSomeSNats,
     HasShape,
     shapeOf,
     rankOf,
@@ -60,6 +62,7 @@ module NumHask.Array.Shape
     GetIndex,
     unsafeGetIndex,
     UnsafeGetIndex,
+    SetIndex,
     rotate,
     type (++),
     Take,
@@ -136,6 +139,13 @@ module NumHask.Array.Shape
     -- * combinators
     EnumFromTo,
     Foldl',
+
+    -- * Specific Constraints
+    takeDim,
+    TakeDim,
+    someTakeDim,
+    someTakeDim',
+    axiomTakeDim,
   )
 where
 
@@ -159,7 +169,9 @@ import Fcf hiding (type (&&), type (+), type (-), type (++))
 import Fcf qualified
 import Fcf.Class.Foldable
 import Fcf.Data.List
+import Fcf.Combinators
 import Control.Monad
+import Data.Constraint (Dict (Dict), (:-) (Sub), (\\))
 
 -- $setup
 -- >>> :m -Prelude
@@ -200,9 +212,9 @@ int = Prelude.fromIntegral . fromSNat
 -- | Mimics SNat from GHC.TypeNats
 newtype SNats (ns :: [Nat]) = UnsafeSNats [Nat]
 
-instance (KnownNats ns) => Show (SNats ns)
+instance Show (SNats ns)
   where
-    show s = "SNats @" <> bool "" "'" (length (natVals s) < 2) <> "[" <> mconcat (List.intersperse ", " (show <$> (natVals s))) <> "]"
+    show (UnsafeSNats s) = "SNats @" <> bool "" "'" (length s < 2) <> "[" <> mconcat (List.intersperse ", " (show <$> s)) <> "]"
 
 type role SNats nominal
 
@@ -212,6 +224,13 @@ pattern SNats <- (knownNatsInstance -> KnownNatsInstance)
 
 fromSNats :: SNats s -> [Nat]
 fromSNats (UnsafeSNats s) = s
+
+-- | Get the value of an SNats as an [Int].
+--
+-- >>> ints (SNats @[2,3])
+-- [2,3]
+ints :: SNats ns -> [Int]
+ints = fmap Prelude.fromIntegral . fromSNats
 
 -- An internal data type that is only used for defining the SNat pattern
 -- synonym.
@@ -241,6 +260,11 @@ natVals _ = case natsSing :: SNats ns of
 withKnownNats :: forall ns rep (r :: TYPE rep).
                 SNats ns -> (KnownNats ns => r) -> r
 withKnownNats = withDict @(KnownNats ns)
+
+withSomeSNats :: forall rep (r :: TYPE rep).
+                [Nat] -> (forall s. SNats s -> r) -> r
+withSomeSNats s k = k (UnsafeSNats s)
+
 
 {-
 -- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
@@ -585,7 +609,7 @@ unsafeGetIndex _ _ = error "unsafeGetIndex outside bounds"
 -- ...
 -- = (TypeError ...)
 data UnsafeGetIndex :: Nat -> [a] -> Exp a
-type instance Eval (UnsafeGetIndex n xs) = Eval (FromMaybe (L.TypeError (L.Text "UnsafeGetIndex out of bounds")) (Eval (GetIndex n xs)))
+type instance Eval (UnsafeGetIndex n xs) = Eval (FromMaybe (L.TypeError (L.Text "UnsafeGetIndex out of bounds: " :<>: ShowType n :<>: L.Text " " :<>: ShowType xs)) (Eval (GetIndex n xs)))
 
 -- | minimum dimension
 --
@@ -1161,3 +1185,33 @@ data Foldl' :: (b -> a -> Exp b) -> b -> t a -> Exp b
 
 type instance Eval (Foldl' f y '[]) = y
 type instance Eval (Foldl' f y (x ': xs)) = Eval (Foldl' f (Eval (f y x)) xs)
+
+takeDim :: Int -> Int -> [Int] -> [Int]
+takeDim d t s = replaceDim d (min t (unsafeGetIndex d s)) s
+
+-- | Take along a dimension.
+--
+-- >>> :k! Eval (TakeDim 0 1 [2,3,4])
+-- ...
+-- = [1, 3, 4]
+data TakeDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
+
+type instance Eval (TakeDim d t s) =
+  Eval (
+    Flip (SetIndex d) s =<<
+    Min t =<<
+    UnsafeGetIndex d s
+  )
+
+someTakeDim :: forall d t s. (HasShape s, KnownNat d, KnownNat t) => SNats (Eval (TakeDim d t s))
+someTakeDim = withSomeSNats (fromIntegral <$> takeDim (int (SNat :: SNat d)) (int (SNat :: SNat t)) (ints (SNats :: SNats s))) unsafeCoerce
+
+someTakeDim' :: forall d t s s'. (HasShape s, KnownNat d, KnownNat t) => SNats s'
+someTakeDim' = withSomeSNats (fromIntegral <$> takeDim (int (SNat :: SNat d)) (int (SNat :: SNat t)) (ints (SNats :: SNats s))) unsafeCoerce
+
+-- | Provide axiomatic proof, make sure you wrote it on paper!
+unsafeAxiom :: Dict c
+unsafeAxiom = unsafeCoerce (Dict :: Dict ())
+
+axiomTakeDim :: forall d t s. (KnownNat d, KnownNat t, KnownNats s) :- (KnownNats (Eval (TakeDim d t s)))
+axiomTakeDim = Sub unsafeAxiom
