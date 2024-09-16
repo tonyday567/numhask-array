@@ -79,9 +79,6 @@ module NumHask.Array.Fixed
 
     -- ** Single-dimension operators
     take,
-    example_take,
-    example_take_1,
-    example_take_axiom,
     takeB,
     drop,
     dropB,
@@ -185,16 +182,6 @@ module NumHask.Array.Fixed
     Vector,
     vector,
     vector',
-    SomeVector (..),
-    withLength,
-    aVector,
-    example_insert,
-    example_append,
-    SomeVector' (..),
-    someVector',
-    aVector',
-    example_insert',
-    example_append',
     iota,
     Matrix,
 )
@@ -220,12 +207,8 @@ import System.Random hiding (uniform)
 import System.Random.Stateful hiding (uniform)
 import Unsafe.Coerce
 import NumHask.Array.Sort
--- import Data.Reflection
--- import Unsafe.Coerce
-import Type.Reflection
 import Test.QuickCheck hiding (tabulate, vector)
 import Test.QuickCheck.Instances.Natural ()
-import Data.Constraint ((\\))
 
 -- $setup
 --
@@ -484,21 +467,34 @@ unsafeModifyShape a = unsafeArray (asVector a)
 unsafeModifyVector :: (HasShape s) => (FromVector u a) => (FromVector v b) => (u -> v) -> Array s a -> Array s b
 unsafeModifyVector f a = unsafeArray (asVector (f (vectorAs (asVector a))))
 
+-- | A fixed Array with a hidden shape.
+--
+-- The library design encourages the use of dynamic arrays in preference to dependent-type styles such as this. In particular, no attempt has been made to prove to the compiler that a particular Shape (resulting from any of the supplied functions) exists. Life is short.
 data SomeArray a = forall s. SomeArray (SNats s) (Array s a)
 
--- TODO: other derivings
 deriving instance (Show a) => Show (SomeArray a)
+
+instance Functor SomeArray
+  where
+    fmap f (SomeArray sn a) = SomeArray sn (fmap f a)
+
+instance Foldable SomeArray
+  where
+    foldMap f (SomeArray _ a) = foldMap f a
+
 
 someArray :: forall s t a. FromVector t a => SNats s -> t -> SomeArray a
 someArray s t = SomeArray s (Array (asVector t))
 
--- TODO: debug this
--- show . fmap (\(SomeArray _ a) -> sum (asVector a)) <$> (sample' arbitrary :: IO [SomeArray Int])
+-- |
+-- > P.take 4 <$> sample' arbitrary :: IO [SomeArray Int]
+-- [SomeArray SNats @'[] [0],SomeArray SNats @'[0] [],SomeArray SNats @[1, 1] [1],SomeArray SNats @[5, 1, 4] [2,1,0,2,-6,0,5,6,-1,-4,0,5,-1,6,4,-6,1,0,3,-1]]
 instance (Arbitrary a) => Arbitrary (SomeArray a) where
   arbitrary = do
     s <- arbitrary :: Gen [Small Nat]
-    v <- V.replicateM (product (Prelude.fromIntegral <$> s)) arbitrary
-    withSomeSNats (Prelude.take 2 (getSmall <$> s)) $ \s' -> pure (someArray s' v)
+    let s' = Prelude.take 3 (getSmall <$> s)
+    v <- V.replicateM (product (Prelude.fromIntegral <$> s')) arbitrary
+    withSomeSNats s' $ \sn -> pure (someArray sn v)
 
 -- | convert to a dynamic array with shape at the value level.
 --
@@ -806,7 +802,7 @@ colWise f _ a = f (Proxy :: Proxy ts) a
 --   [16],
 --   [20]]]
 take ::
-  forall s s' a d t.
+  forall d t s s' a.
   ( HasShape s,
     HasShape s',
     s' ~ Eval (TakeDim d t s)
@@ -816,35 +812,6 @@ take ::
   Array s a ->
   Array s' a
 take _ _ a = unsafeBackpermute id a
-
-example_take :: forall a s. (HasShape s, Show a) => Nat -> Nat -> Array s a -> String
-example_take d t a =
-  withSomeSNat d
-  (\(SNat :: SNat d) ->
-    withSomeSNat t
-    (\(SNat :: SNat t) ->
-      case someTakeDim @d @t @s of
-        SNats -> show $ take (SNat @d) (SNat @t) a
-        _ -> "not matched"))
-
-example_take_1 :: forall a s. (HasShape s, Show a) => Nat -> Nat -> Array s a -> String
-example_take_1 d t a =
-  withSomeSNat d
-  (\(SNat :: SNat d) ->
-    withSomeSNat t
-    (\(SNat :: SNat t) ->
-      case someTakeDim @d @t @s of
-        SNats -> show (someTakeDim @d @t @s) <> " : take " <> show (SNat @d) <> " " <> show (SNat @t) <> " " <> show a
-        _ -> "not matched"))
-
-example_take_axiom :: forall a s. (HasShape s, Show a) => Nat -> Nat -> Array s a -> String
-example_take_axiom d t a =
-  withSomeSNat d
-  (\(SNat :: SNat d) ->
-    withSomeSNat t
-    (\(SNat :: SNat t) ->
-        (show $ (take (SNat @d) (SNat @t) a) \\ axiomTakeDim @d @t @s)
-        ))
 
 -- | Take the bottom-most elements across the specified dimension.
 --
@@ -859,14 +826,13 @@ takeB ::
   forall s s' a d t.
   ( HasShape s,
     HasShape s',
-    Eval (IsFin d (Eval (Rank s))) ~ True,
-    Eval (SetIndex d (Eval (Min t (Eval (UnsafeGetIndex d s)))) s) ~ s'
+    s' ~ Eval (TakeDim d t s)
   ) =>
   SNat d ->
   SNat t ->
   Array s a ->
   Array s' a
-takeB d t a = unsafeBackpermute (\s -> modifyDim (int d) (\x -> x + (unsafeGetIndex (int d) (shape a)) - (int t)) s) a
+takeB d t a = unsafeBackpermute (\s -> modifyDim (int d) (\x -> x + (getDim (int d) (shape a)) - (int t)) s) a
 
 -- | Drop the top-most elements across the specified dimension.
 --
@@ -881,8 +847,7 @@ drop ::
   forall s s' a d t.
   ( HasShape s,
     HasShape s',
-    Eval (IsFin d (Eval (Rank s))) ~ True,
-    Eval (SetIndex d (Eval ((Fcf.-) (Eval (UnsafeGetIndex d s)) t)) s) ~ s'
+    Eval (DropDim d t s) ~ s'
   ) =>
   SNat d ->
   SNat t ->
@@ -903,8 +868,7 @@ dropB ::
   forall s s' a d t.
   ( HasShape s,
     HasShape s',
-    Eval (IsFin d (Eval (Rank s))) ~ True,
-    Eval (SetIndex d (Eval ((Fcf.-) (Eval (UnsafeGetIndex d s)) t)) s) ~ s'
+    Eval (DropDim d t s) ~ s'
   ) =>
   SNat d ->
   SNat t ->
@@ -939,11 +903,10 @@ select d x a = unsafeBackpermute (S.insertDim (int d) (int x)) a
 -- UnsafeArray [4] [0,1,2,3]
 concatenate ::
   forall a s0 s1 d s.
-  ( Eval (Concatenate d (Eval (AsSingleton s0)) (Eval (AsSingleton s1))) ~ s,
-    HasShape s0,
+  ( HasShape s0,
     HasShape s1,
     HasShape s,
-    HasShape (Eval (AsSingleton s0))
+    Eval (Concatenate d s0 s1) ~ s
   ) =>
   SNat d ->
   Array s0 a ->
@@ -958,12 +921,12 @@ concatenate d a0 a1 = tabulate (go . fromFins)
             a1
             ( UnsafeFins $ insertDim
                 d'
-                ((s !! d') - (ds0 !! d'))
+                (getDim d' s - getDim d' ds0)
                 (deleteDim d' s)
             )
         )
-        ((s !! d') >= (ds0 !! d'))
-    ds0 = shape (asSingleton a0)
+        (getDim d' s >= getDim d' ds0)
+    ds0 = shape a0
     d' = int d
 
 -- | Insert along a dimension at a position.
@@ -982,10 +945,10 @@ insert ::
   (HasShape s,
    HasShape si,
    HasShape s',
+   si ~ Eval (DeleteDim d s),
    HasShape (Eval (AsSingleton s)),
    HasShape (Eval (AsSingleton si)),
-   -- FIXME si relationship
-   s' ~ Eval (IncAt d (Eval (AsSingleton s)))
+   s' ~ Eval (IncAt d s)
    ) =>
   SNat d ->
   Int ->
@@ -1000,6 +963,7 @@ insert sd i a b = tabulate go
       | otherwise = index (asSingleton a) (UnsafeFins (S.decAt d xs'))
       where xs' = fromFins xs
     d = Prelude.fromIntegral (fromSNat sd)
+
 
 -- | Delete along a dimension at a position.
 --
@@ -1038,9 +1002,10 @@ append ::
   forall a d pos s si s'.
   ( HasShape (Eval (AsSingleton s)),
     HasShape (Eval (AsSingleton si)),
-    s' ~ Eval (IncAt d (Eval (AsSingleton s))),
+    si ~ Eval (DeleteDim d s),
+    s' ~ Eval (IncAt d s),
     KnownNat pos,
-    pos ~ Eval (UnsafeGetIndex d s),
+    pos ~ Eval (GetDim d s),
     HasShape s,
     HasShape si,
     HasShape s'
@@ -1064,8 +1029,9 @@ prepend ::
   forall a d pos s si s'.
   ( HasShape (Eval (AsSingleton s)),
     HasShape (Eval (AsSingleton si)),
-    s' ~ Eval (IncAt d (Eval (AsSingleton s))),
-    pos ~ Eval ((Fcf.-) (Eval (UnsafeGetIndex d s)) 1),
+    si ~ Eval (DeleteDim d s),
+    s' ~ Eval (IncAt d s),
+    pos ~ Eval ((Fcf.-) (Eval (GetDim d s)) 1),
     HasShape s,
     HasShape si,
     HasShape s'
@@ -1106,7 +1072,7 @@ slice ::
   forall a d off l s s'.
   (HasShape s,
    HasShape s',
-   Eval (SetIndex d l s) ~ s') =>
+   Eval (SetDim d l s) ~ s') =>
   SNat d ->
   SNat off ->
   SNat l ->
@@ -1123,7 +1089,7 @@ takes ::
   forall ts s' s a.
   ( HasShape s,
     HasShape s',
-    s' ~ Eval (ReplaceDimsT ts s)
+    s' ~ Eval (SetDimsT ts s)
   ) =>
   Proxy ts ->
   Array s a ->
@@ -1139,7 +1105,7 @@ takeBs ::
   forall ts s' s a ds xs.
   ( HasShape s,
     HasShape s',
-    s' ~ Eval (ReplaceDimsT ts s),
+    s' ~ Eval (SetDimsT ts s),
     ds ~ Eval (Map Fst ts),
     xs ~ Eval (Map Snd ts),
     HasShape ds,
@@ -1150,7 +1116,7 @@ takeBs ::
   Array s' a
 takeBs _ a = unsafeBackpermute (List.zipWith (+) start) a
   where
-    start = List.zipWith (-) (shape a) (S.replaceDimsT (zip (shapeOf @ds) (shapeOf @xs)) (shape a))
+    start = List.zipWith (-) (shape a) (S.setDimsT (zip (shapeOf @ds) (shapeOf @xs)) (shape a))
 
 -- | Drops the top-most elements across dimension,n tuples.
 --
@@ -1304,7 +1270,7 @@ tails ::
     ts ~ Eval (Zip ds (Eval (Zip os ls))),
     os ~ Eval (Replicate (Eval (Rank ds)) 1),
     ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds s))),
-    s' ~ Eval (ReplaceDims ds ls s),
+    s' ~ Eval (SetDims ds ls s),
     ds ~ Eval (Map Fst ts),
     ls ~ Eval (Map Snd (Eval (Map Snd ts))),
     os ~ Eval (Map Fst (Eval (Map Snd ts)))
@@ -1330,7 +1296,7 @@ inits ::
     ts ~ Eval (Zip ds (Eval (Zip os ls))),
     os ~ Eval (Replicate (Eval (Rank ds)) 0),
     ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds s))),
-    s' ~ Eval (ReplaceDims ds ls s),
+    s' ~ Eval (SetDims ds ls s),
     ds ~ Eval (Map Fst ts),
     ls ~ Eval (Map Snd (Eval (Map Snd ts))),
     os ~ Eval (Map Fst (Eval (Map Snd ts)))
@@ -1359,13 +1325,13 @@ slices ::
    ds ~ Eval (Map Fst ts),
    ls ~ Eval (Map Snd (Eval (Map Snd ts))),
    os ~ Eval (Map Fst (Eval (Map Snd ts))),
-   Eval (ReplaceDims ds ls s) ~ s') =>
+   Eval (SetDims ds ls s) ~ s') =>
   Proxy ts ->
   Array s a ->
   Array s' a
 slices _ a = unsafeBackpermute (List.zipWith (+) o) a
   where
-    o = S.replaceDims (shapeOf @ds) (shapeOf @os) (replicate (rank a) 0)
+    o = S.setDims (shapeOf @ds) (shapeOf @os) (replicate (rank a) 0)
 
 -- | Extracts dimensions to an outer layer.
 --
@@ -1444,7 +1410,7 @@ joins ::
    HasShape st,
    HasShape si,
    HasShape so,
-   Eval (InsertDims (Eval (Zip ds so)) si) ~ st) =>
+   Eval (InsertDims ds so si) ~ st) =>
   Proxy ds ->
   Array so (Array si a) ->
   Array st a
@@ -1476,8 +1442,8 @@ traverses ::
   (Applicative f,
    HasShape s,
    HasShape s',
-   s' ~ Eval (InsertDims (Eval (Zip ds (Eval (TakeDims ds s)))) (Eval (DeleteDims ds s))),
-   HasShape (Eval (InsertDims (Eval (Zip ds (Eval (TakeDims ds s)))) (Eval (DeleteDims ds s)))),
+   s' ~ Eval (InsertDims ds (Eval (TakeDims ds s)) (Eval (DeleteDims ds s))),
+   HasShape s',
    HasShape (Eval (DeleteDims ds s)),
    HasShape (Eval (TakeDims ds s)),
    HasShape ds) =>
@@ -1501,8 +1467,8 @@ maps ::
     HasShape so,
     si ~ Eval (DeleteDims ds st),
     so ~ Eval (TakeDims ds st),
-    st' ~ Eval (InsertDims (Eval (Zip ds so)) si'),
-    st ~ Eval (InsertDims (Eval (Zip ds so)) si)
+    st' ~ Eval (InsertDims ds so si'),
+    st ~ Eval (InsertDims ds so si)
   ) =>
   (Array si a -> Array si' b) ->
   Proxy ds ->
@@ -1547,8 +1513,8 @@ zips ::
     HasShape so,
     si ~ Eval (DeleteDims ds st),
     so ~ Eval (TakeDims ds st),
-    st' ~ Eval (InsertDims (Eval (Zip ds so)) si'),
-    st ~ Eval (InsertDims (Eval (Zip ds so)) si)
+    st' ~ Eval (InsertDims ds so si'),
+    st ~ Eval (InsertDims ds so si)
   ) =>
   Proxy ds ->
   (Array si a -> Array si b -> Array si' c) ->
@@ -1577,7 +1543,7 @@ modifies ::
     ps ~ Eval (Map Snd ts),
     si ~ Eval (DeleteDims ds s),
     so ~ Eval (TakeDims ds s),
-    s ~ Eval (InsertDims (Eval (Zip ds so)) si)) =>
+    s ~ Eval (InsertDims ds so si)) =>
   (Array si a -> Array si a) ->
   Proxy ts ->
   Array s a ->
@@ -1603,8 +1569,8 @@ diffs ::
     HasShape postDrop,
     si ~ Eval (DeleteDims ds postDrop),
     so ~ Eval (TakeDims ds postDrop),
-    st' ~ Eval (InsertDims (Eval (Zip ds so)) si'),
-    postDrop ~ Eval (InsertDims (Eval (Zip ds so)) si),
+    st' ~ Eval (InsertDims ds so si'),
+    postDrop ~ Eval (InsertDims ds so si),
     ds ~ Eval (Map Fst ts),
     ls ~ Eval (Map Snd ts),
     postDrop ~ Eval (DropDims ts st)
@@ -2209,7 +2175,7 @@ concats ::
   Array s' a
 concats _ newd a = unsafeBackpermute unconcatDims a
   where
-    unconcatDims s = S.insertDims (List.zip ds (S.shapen (S.takeDims ds (shape a)) (S.unsafeGetIndex n s))) (S.deleteDim n s)
+    unconcatDims s = S.insertDims (List.zip ds (S.shapen (S.takeDims ds (shape a)) (S.getDim n s))) (S.deleteDim n s)
     n = int newd
     ds = shapeOf @ds
 
@@ -2283,7 +2249,7 @@ sorts ::
    HasShape so,
    si ~ Eval (DeleteDims ds s),
    so ~ Eval (TakeDims ds s),
-   s ~ Eval (InsertDims (Eval (Zip ds so)) si)
+   s ~ Eval (InsertDims ds so si)
   ) =>
   Proxy ds -> Array s a -> Array s a
 sorts ds a = joins ds $ unsafeModifyVector sortV (extracts ds a)
@@ -2302,7 +2268,7 @@ sortsBy ::
    HasShape so,
    si ~ Eval (DeleteDims ds s),
    so ~ Eval (TakeDims ds s),
-   s ~ Eval (InsertDims (Eval (Zip ds so)) si)
+   s ~ Eval (InsertDims ds so si)
   ) =>
   Proxy ds -> (Array si a -> Array si b) -> Array s a -> Array s a
 sortsBy ds c a = joins ds $ unsafeModifyVector (sortByV c) (extracts ds a)
@@ -2320,7 +2286,7 @@ orders ::
    HasShape so,
    si ~ Eval (DeleteDims ds s),
    so ~ Eval (TakeDims ds s),
-   s ~ Eval (InsertDims (Eval (Zip ds so)) si)
+   s ~ Eval (InsertDims ds so si)
   ) =>
   Proxy ds -> Array s a -> Array so Int
 orders ds a = unsafeModifyVector orderV (extracts ds a)
@@ -2339,7 +2305,7 @@ ordersBy ::
    HasShape so,
    si ~ Eval (DeleteDims ds s),
    so ~ Eval (TakeDims ds s),
-   s ~ Eval (InsertDims (Eval (Zip ds so)) si)
+   s ~ Eval (InsertDims ds so si)
   ) =>
   Proxy ds -> (Array si a -> Array si b) -> Array s a -> Array so Int
 ordersBy ds c a = unsafeModifyVector (orderByV c) (extracts ds a)
@@ -2394,55 +2360,14 @@ transmit ::
    ds ~ Eval (EnumFromTo (Eval (Rank sa)) (Eval ((Fcf.-) (Eval (Rank sb)) 1))),
    sib ~ Eval (DeleteDims ds sb),
    sob ~ Eval (TakeDims ds sb),
-   sb ~ Eval (InsertDims (Eval (Zip ds sob)) sib),
-   sc ~ Eval (InsertDims (Eval (Zip ds sob)) sic),
+   sb ~ Eval (InsertDims ds sob sib),
+   sc ~ Eval (InsertDims ds sob sic),
    True ~ (Eval (IsPrefixOf sa sb))) =>
   (Array sa a -> Array sib b -> Array sic c) -> Array sa a -> Array sb b -> Array sc c
 transmit f a b = maps (f a) (Proxy :: Proxy ds) b
 
 -- | <https://en.wikipedia.org/wiki/Vector_(mathematics_and_physics) Wiki Vector>
 type Vector s a = Array '[s] a
-
-data SomeVector a where
-  SomeVector :: KnownNat n => Vector n a -> SomeVector a
-
-deriving instance (Show a) => Show (SomeVector a)
-
-withLength :: forall n a r. Vector n a -> (KnownNat n => r) -> r
-withLength v r = case someNatVal (fromIntegral $ V.length (asVector v)) of
-  SomeNat (Proxy :: Proxy n') -> case unsafeCoerce Refl of
-    (Refl :: n :~: n') -> r
-
-aVector :: FromVector t a => t -> SomeVector a
-aVector (Array . asVector -> v) = withLength v (SomeVector v)
-
-example_append :: (Show a, Num a, FromInteger a) => SomeVector a -> String
-example_append (SomeVector a) = show (append (SNat @0) a (toScalar 0))
-
-example_insert :: (Show a, FromInteger a) => SomeVector a -> String
-example_insert (SomeVector a) = show (insert (SNat @0) 0 a (toScalar 0))
-
-data SomeVector' a = forall n. SomeVector' (SNat n) (Vector n a)
-
-deriving instance (Show a) => Show (SomeVector' a)
-
-someVector' :: FromVector t a => KnownNat n => SNat n -> t -> SomeVector' a
-someVector' n t = SomeVector' n (vector' n t)
-
-aVector' :: forall a t. FromVector t a => t -> SomeVector' a
-aVector' t = withSomeSNat (fromIntegral $ V.length (asVector t)) $ \(SNat :: SNat n) -> SomeVector' SNat (vector' (SNat @n) (asVector t))
-
-example_insert' :: (Show a, FromInteger a) => SomeVector' a -> String
-example_insert' (SomeVector' (SNat :: SNat n) a) = show (insert (SNat @0) 0 a (toScalar 0))
-
-example_append' :: (Show a, Num a, FromInteger a) => SomeVector' a -> String
-example_append' (SomeVector' (SNat :: SNat n) a) = show (append (SNat @0) a (toScalar 0))
-
-instance (Arbitrary a) => Arbitrary (SomeVector' a) where
-  arbitrary = do
-    n <- arbitrary
-    v <- V.replicateM (Prelude.fromIntegral n) arbitrary
-    withSomeNat n $ \sn -> pure (someVector' sn v)
 
 -- | A one-dimensional array.
 --
@@ -2522,8 +2447,9 @@ cons ::
     KnownNat pos,
     HasShape (Eval (AsSingleton st)),
     HasShape (Eval (AsSingleton sh)),
-    s ~ Eval (IncAt 0 (Eval (AsSingleton st))),
-    pos ~ Eval ((Fcf.-) (Eval (UnsafeGetIndex 0 st)) 1)) =>
+    s ~ Eval (IncAt 0 st),
+    sh ~ Eval (DeleteDim 0 st),
+    pos ~ Eval ((Fcf.-) (Eval (GetDim 0 st)) 1)) =>
     Array sh a -> Array st a -> Array s a
 cons =
   prepend (SNat @0)
@@ -2540,9 +2466,10 @@ snoc :: forall si s sl a pos.
     HasShape sl,
     HasShape (Eval (AsSingleton si)),
     HasShape (Eval (AsSingleton sl)),
-    s ~ Eval (IncAt 0 (Eval (AsSingleton si))),
+    s ~ Eval (IncAt 0 si),
+    sl ~ Eval (DeleteDim 0 si),
     KnownNat pos,
-    pos ~ Eval (UnsafeGetIndex 0 si)) =>
+    pos ~ Eval (GetDim 0 si)) =>
     Array si a -> Array sl a -> Array s a
 snoc = append (SNat @0)
 
@@ -2565,7 +2492,7 @@ uncons ::
    ts ~ Eval (Zip ds (Eval (Zip os ls))),
    os ~ Eval (Replicate (Eval (Rank ds)) 1),
    ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds (Eval (AsSingleton s))))),
-   st ~ Eval (ReplaceDims ds ls (Eval (AsSingleton s))),
+   st ~ Eval (SetDims ds ls (Eval (AsSingleton s))),
    ds ~ Eval (Map Fst ts),
    ls ~ Eval (Map Snd (Eval (Map Snd ts))),
    os ~ Eval (Map Fst (Eval (Map Snd ts)))
@@ -2593,7 +2520,7 @@ unsnoc ::
     ts ~ Eval (Zip ds (Eval (Zip os ls))),
     os ~ Eval (Replicate (Eval (Rank ds)) 0),
     ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds (Eval (AsSingleton s))))),
-    si ~ Eval (ReplaceDims ds ls (Eval (AsSingleton s))),
+    si ~ Eval (SetDims ds ls (Eval (AsSingleton s))),
     ds ~ Eval (Map Fst ts),
     ls ~ Eval (Map Snd (Eval (Map Snd ts))),
     os ~ Eval (Map Fst (Eval (Map Snd ts))),
@@ -2620,18 +2547,19 @@ pattern (:<) ::
    KnownNat pos,
    HasShape (Eval (AsSingleton st)),
    HasShape (Eval (AsSingleton sh)),
-   s ~ Eval (IncAt 0 (Eval (AsSingleton st))),
-   pos ~ Eval ((Fcf.-) (Eval (UnsafeGetIndex 0 st)) 1),
+   s ~ Eval (IncAt 0 st),
+   pos ~ Eval ((Fcf.-) (Eval (GetDim 0 st)) 1),
    ds ~ '[0],
    HasShape (Eval (AsSingleton s)),
    sh ~ Eval (DeleteDims ds (Eval (AsSingleton s))),
    sh ~ Eval (Drop 1 s),
+   sh ~ Eval (DeleteDim 0 st),
    HasShape ls,
    HasShape os,
    ts ~ Eval (Zip ds (Eval (Zip os ls))),
    os ~ Eval (Replicate (Eval (Rank ds)) 1),
    ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds (Eval (AsSingleton s))))),
-   st ~ Eval (ReplaceDims ds ls (Eval (AsSingleton s))),
+   st ~ Eval (SetDims ds ls (Eval (AsSingleton s))),
    ds ~ Eval (Map Fst ts),
    ls ~ Eval (Map Snd (Eval (Map Snd ts))),
    os ~ Eval (Map Fst (Eval (Map Snd ts)))) =>
@@ -2660,18 +2588,19 @@ pattern (:>) ::
    HasShape s,
    HasShape (Eval (AsSingleton si)),
    HasShape (Eval (AsSingleton sl)),
-   s ~ Eval (IncAt 0 (Eval (AsSingleton si))),
+   s ~ Eval (IncAt 0 si),
    KnownNat pos,
-   pos ~ Eval (UnsafeGetIndex 0 si),
+   pos ~ Eval (GetDim 0 si),
    HasShape ds,
    HasShape ls,
    HasShape os,
    HasShape (Eval (AsSingleton s)),
+   sl ~ Eval (DeleteDim 0 si),
    ds ~ '[0],
    ts ~ Eval (Zip ds (Eval (Zip os ls))),
    os ~ Eval (Replicate (Eval (Rank ds)) 0),
    ls ~ Eval (Map (Flip (Fcf.-) 1) (Eval (TakeDims ds (Eval (AsSingleton s))))),
-   si ~ Eval (ReplaceDims ds ls (Eval (AsSingleton s))),
+   si ~ Eval (SetDims ds ls (Eval (AsSingleton s))),
    ds ~ Eval (Map Fst ts),
    ls ~ Eval (Map Snd (Eval (Map Snd ts))),
    os ~ Eval (Map Fst (Eval (Map Snd ts))),

@@ -723,7 +723,7 @@ drop ::
   Array a
 drop d t a = backpermute dsNew (S.modifyDim d (\x -> x + bool t 0 (t < 0))) a
   where
-    dsNew = S.replaceDim d ((S.unsafeGetIndex d (shape a)) - abs t)
+    dsNew = S.setDim d ((S.getDim d (shape a)) - abs t)
 
 -- | Select an index along a dimension.
 --
@@ -823,7 +823,7 @@ append ::
   Array a ->
   Array a ->
   Array a
-append d a b = insert d (S.unsafeGetIndex d (shape a)) a b
+append d a b = insert d (S.getDim d (shape a)) a b
 
 -- | Insert along a dimension at the beginning.
 --
@@ -864,7 +864,7 @@ slice ::
   (Int, Int) ->
   Array a ->
   Array a
-slice d (o, l) a = backpermute (S.replaceDim d l) (S.modifyDim d (+ o)) a
+slice d (o, l) a = backpermute (S.setDim d l) (S.modifyDim d (+ o)) a
 
 
 -- * multi-dimension operators
@@ -883,8 +883,8 @@ takes ::
   Array a
 takes ts a = backpermute dsNew (List.zipWith (+) start) a
   where
-    dsNew = S.replaceDims ds xsAbs
-    start = List.zipWith (\x s -> bool 0 (s + x) (x<0)) (S.replaceDimsT ts (replicate (rank a) 0)) (shape a)
+    dsNew = S.setDims ds xsAbs
+    start = List.zipWith (\x s -> bool 0 (s + x) (x<0)) (S.setDimsT ts (replicate (rank a) 0)) (shape a)
     ds = fmap fst ts
     xs = fmap snd ts
     xsAbs = fmap abs xs
@@ -900,7 +900,7 @@ drops ::
 drops ts a = backpermute dsNew (List.zipWith (\d' s' -> bool (d' + s') s' (d' < 0)) xsNew) a
   where
     dsNew = S.modifyDims ds (fmap (flip (-)) xsAbs)
-    xsNew = S.replaceDims ds xs (replicate (rank a) 0)
+    xsNew = S.setDims ds xs (replicate (rank a) 0)
     ds = fmap fst ts
     xs = fmap snd ts
     xsAbs = fmap abs xs
@@ -1620,7 +1620,7 @@ concats ::
 concats ds n a = backpermute concatDims unconcatDims a
   where
     concatDims s = S.insertDim n (S.size $ S.takeDims ds s) (S.deleteDims ds s)
-    unconcatDims s = S.insertDims (List.zip ds (S.shapen (S.takeDims ds (shape a)) (S.unsafeGetIndex n s))) (S.deleteDim n s)
+    unconcatDims s = S.insertDims (List.zip ds (S.shapen (S.takeDims ds (shape a)) (S.getDim n s))) (S.deleteDim n s)
 
 -- | Rotate an array along a dimension.
 --
