@@ -829,7 +829,7 @@ takeB ::
   SNat t ->
   Array s a ->
   Array s' a
-takeB SNat SNat a = unsafeBackpermute (\s -> modifyDim (int @d) (\x -> x + (getDim (int @d) (shape a)) - (int @t)) s) a
+takeB SNat SNat a = unsafeBackpermute (\s -> modifyDim (valueOf @d) (\x -> x + (getDim (valueOf @d) (shape a)) - (valueOf @t)) s) a
 
 -- | Drop the top-most elements across the specified dimension.
 --
@@ -850,7 +850,7 @@ drop ::
   SNat t ->
   Array s a ->
   Array s' a
-drop SNat SNat a = unsafeBackpermute (S.modifyDim (int @d) (\x -> x + bool (int @t) 0 ((int @t) < 0))) a
+drop SNat SNat a = unsafeBackpermute (S.modifyDim (valueOf @d) (\x -> x + bool (valueOf @t) 0 ((valueOf @t) < 0))) a
 
 -- | Drop the bottom-most elements across the specified dimension.
 --
@@ -888,7 +888,7 @@ select ::
   SNat x ->
   Array s a ->
   Array  s' a
-select SNat SNat a = unsafeBackpermute (S.insertDim (int @d) (int @x)) a
+select SNat SNat a = unsafeBackpermute (S.insertDim (valueOf @d) (valueOf @x)) a
 
 -- | Concatenate along a dimension.
 --
@@ -924,7 +924,7 @@ concatenate SNat a0 a1 = tabulate (go . fromFins)
         )
         (getDim d' s >= getDim d' ds0)
     ds0 = shape a0
-    d' = int @d
+    d' = valueOf @d
 
 -- | Insert along a dimension at a position.
 --
@@ -1005,7 +1005,7 @@ append ::
   Array s a ->
   Array si a ->
   Array s' a
-append d = insert d (int @pos)
+append d = insert d (valueOf @pos)
 
 -- | Insert along a dimension at the beginning.
 --
@@ -1066,7 +1066,7 @@ slice ::
   SNat l ->
   Array s a ->
   Array s' a
-slice SNat SNat _ a = unsafeBackpermute (S.modifyDim (int @d) (+ (int @off))) a
+slice SNat SNat _ a = unsafeBackpermute (S.modifyDim (valueOf @d) (+ (valueOf @off))) a
 
 -- * multi-dimensional operators
 
@@ -1165,7 +1165,7 @@ indexes ::
   Fins ts ->
   Array s a ->
   Array s' a
-indexes SNats xs a = unsafeBackpermute (S.insertDims (List.zip (ints @ds) (fromFins xs))) a
+indexes SNats xs a = unsafeBackpermute (S.insertDims (List.zip (shapeOf @ds) (fromFins xs))) a
 
 --- | Select by dimensions and indexes, supplying indexes as a type.
 ---
@@ -1205,7 +1205,7 @@ indexesExcept ::
   Fins ts ->
   Array s a ->
   Array s' a
-indexesExcept ds i a = unsafeBackpermute (\s -> insertDims (List.zip (Prelude.fromIntegral <$> natVals ds) s) (fromFins i)) a
+indexesExcept _ i a = unsafeBackpermute (\s -> insertDims (List.zip (shapeOf @ds) s) (fromFins i)) a
 
 -- | Select the first element along the supplied dimensions
 --
@@ -2120,7 +2120,7 @@ inflate ::
   SNat x ->
   Array s a ->
   Array s' a
-inflate SNat _ a = unsafeBackpermute (S.deleteDim (int @d)) a
+inflate SNat _ a = unsafeBackpermute (S.deleteDim (valueOf @d)) a
 
 -- | Concatenate and replace dimensions, creating a new dimension at the supplied postion.
 --
@@ -2142,7 +2142,7 @@ concats ::
 concats _ SNat a = unsafeBackpermute unconcatDims a
   where
     unconcatDims s = S.insertDims (List.zip ds (S.shapen (S.getDims ds (shape a)) (S.getDim n s))) (S.deleteDim n s)
-    n = int @newd
+    n = valueOf @newd
     ds = shapeOf @ds
 
 -- | Reverses element order along specified dimensions.

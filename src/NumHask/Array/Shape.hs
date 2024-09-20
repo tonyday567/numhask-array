@@ -31,16 +31,14 @@
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
   ( -- * Type-level Nat
-    withSomeNat,
-    int,
     SNat,
     pattern SNat,
+    valueOf,
 
     -- * Type-level [Nat]
     SNats,
     pattern SNats,
     fromSNats,
-    ints,
     KnownNats (..),
     natVals,
     SomeNats,
@@ -56,19 +54,6 @@ module NumHask.Array.Shape
     safeFin,
     Fins (..),
     toFins,
-    flatten,
-    shapen,
-    asSingleton,
-    AsSingleton,
-    asScalar,
-    AsScalar,
-    IsSubset,
-
-    -- * Primitives
-    Take,
-    Drop,
-    Reverse,
-    Filter,
     rank,
     Rank,
     Range,
@@ -76,26 +61,26 @@ module NumHask.Array.Shape
     Rerank,
     size,
     Size,
-    Min,
-    minimum,
-    Minimum,
-
+    flatten,
+    shapen,
+    asSingleton,
+    AsSingleton,
+    asScalar,
+    AsScalar,
+    IsSubset,
     exclude,
     Exclude,
-    concatenate,
-    Concatenate,
-    ConcatenateOk,
     reorder,
     Reorder,
     ReorderOk,
     squeeze,
     Squeeze,
-    expandWindows,
-    ExpandWindows,
-    indexWindows,
 
-    -- * Fcf
-    Fcf.Eval,
+    -- * Primitives
+    Min,
+    Max,
+    minimum,
+    Minimum,
 
     -- * Position
     isFin,
@@ -134,8 +119,12 @@ module NumHask.Array.Shape
     DeleteDim,
     insertDim,
     InsertDim,
+    InsertOk,
+    concatenate,
+    Concatenate,
+    ConcatenateOk,
 
-    -- multiple dimension
+    -- * multiple dimension
     getDims,
     GetDims,
     modifyDims,
@@ -152,15 +141,16 @@ module NumHask.Array.Shape
     dropDims,
     DropDims,
 
-    -- Specific check
-    InsertOk,
-
     -- * value-only operations
     reverseIndex,
     rotate,
     rotateIndex,
     isDiag,
 
+    -- * windowed
+    expandWindows,
+    ExpandWindows,
+    indexWindows,
   )
 where
 
@@ -193,28 +183,18 @@ import Control.Monad
 -- >>> :set -XTypeFamilies
 -- >>> :set -XFlexibleContexts
 -- >>> :set -XRebindableSyntax
--- >>> import NumHask.Prelude
+-- >>> import NumHask.Prelude hiding (Min, Max)
 -- >>> import NumHask.Array.Shape as S
--- >>> import GHC.TypeNats
 -- >>> import Fcf (Eval)
-
--- | Convert a Nat into an SNat n value, and apply it to a context with both a KnownNat constraint and an SNat input.
---
--- 'withSomeSNat' can be used where there is no KnownNat constraint, but this is almost never given the library design:
---
---
-withSomeNat :: forall r. Nat -> (forall (n :: Nat). KnownNat n => SNat n -> r) -> r
-withSomeNat n k = withSomeSNat n $
-               \(sn :: (SNat n)) -> withKnownNat sn $ k sn
 
 -- | Get the value of a type level Nat.
 -- Use with explicit type application
 --
--- >>> int @42
+-- >>> valueOf @42
 -- 42
-int :: forall n. (KnownNat n) => Int
-int = Prelude.fromIntegral $ natVal (Proxy :: Proxy n)
-{-# INLINE int #-}
+valueOf :: forall n. (KnownNat n) => Int
+valueOf = Prelude.fromIntegral $ fromSNat (SNat @n)
+{-# INLINE valueOf #-}
 
 -- | Mimics SNat from GHC.TypeNats
 newtype SNats (ns :: [Nat]) = UnsafeSNats [Nat]
@@ -232,13 +212,6 @@ pattern SNats <- (knownNatsInstance -> KnownNatsInstance)
 
 fromSNats :: SNats s -> [Nat]
 fromSNats (UnsafeSNats s) = s
-
--- | Get the value of a KnownNats as an [Int].
---
--- >>> ints @[2,3]
--- [2,3]
-ints :: forall s. KnownNats s => [Int]
-ints = fmap Prelude.fromIntegral (fromSNats (SNats :: SNats s))
 
 -- An internal data type that is only used for defining the SNat pattern
 -- synonym.
@@ -279,35 +252,15 @@ someNatVals :: [Nat] -> SomeNats
 someNatVals s = withSomeSNats s (\(sn :: SNats s) ->
                 withKnownNats sn (SomeNats @s Proxy))
 
-{-
--- | The Shape type holds a [Nat] at type level and the equivalent [Int] at value level.
---
--- >>> toShape @[2,3,4]
--- Shape {shapeVal = [2,3,4]}
---
--- A 'Shape' most often represents the dimensions of a hyper-rectangular dense array.
---
--- This could also be called KnownNats
-newtype Shape (s :: [Nat]) = Shape {shapeVal :: [Int]} deriving (Show)
-
-class HasShape s where
-  toShape :: Shape s
-
-instance HasShape '[] where
-  toShape = Shape []
-
-instance (KnownNat n, HasShape s) => HasShape (n : s) where
-  toShape = Shape $ Prelude.fromIntegral (natVal (Proxy :: Proxy n)) : shapeVal (toShape :: Shape s)
--}
-
+-- * shape primitives
 type HasShape = KnownNats
 
 -- | Supply the value-level of a 'HasShape' as an [Int]
 --
 -- >>> shapeOf @[2,3,4]
 -- [2,3,4]
-shapeOf :: forall s. (HasShape s) => [Int]
-shapeOf = Prelude.fromIntegral <$> natVals (Proxy :: Proxy s)
+shapeOf :: forall s. KnownNats s => [Int]
+shapeOf = fmap Prelude.fromIntegral (fromSNats (SNats :: SNats s))
 {-# INLINE shapeOf #-}
 
 -- | The rank of a 'Shape'.
@@ -326,7 +279,7 @@ sizeOf :: forall s. (HasShape s) => Int
 sizeOf = product (shapeOf @s)
 {-# INLINE sizeOf #-}
 
--- | Fin most often represents a (finite) zer-based index for a single dimension (of a multi-dimensioned hyper-rectangular array).
+-- | Fin most often represents a (finite) zero-based index for a single dimension (of a multi-dimensioned hyper-rectangular array).
 type role Fin nominal
 newtype Fin s
   = UnsafeFin
@@ -345,7 +298,7 @@ instance Show (Fin n) where
 -- >>> safeFin 2 :: Maybe (Fin 2)
 -- Nothing
 safeFin :: forall n. (KnownNat n) => Int -> Maybe (Fin n)
-safeFin x = bool Nothing (Just (UnsafeFin x)) (x >= 0 && x < int @n)
+safeFin x = bool Nothing (Just (UnsafeFin x)) (x >= 0 && x < valueOf @n)
 
 -- | Fins most often represents (finite) indexes for multiple dimensions (of a multi-dimensioned hyper-rectangular array).
 type role Fins nominal
@@ -378,8 +331,8 @@ rank = length
 
 -- | Number of dimensions
 --
--- >>> :k! (Eval (Rank [2,3,4]))
--- (Eval (Rank [2,3,4])) :: Natural
+-- >>> :k! Eval (Rank [2,3,4])
+-- ...
 -- = 3
 data Rank :: t a -> Exp Natural
 
@@ -388,14 +341,19 @@ type instance Eval (Rank xs) =
 
 -- | Enumerate a range of rank n
 --
--- FIXME: works in ghci
--- >> :k! Eval (Range 3)
+-- FIXME: If the order of these tests are reversed, it fails.
+--
+-- >>> :k! Eval (Range 0)
+-- ...
+-- = '[]
+--
+-- >>> :k! Eval (Range 3)
 -- ...
 -- = [0, 1, 2]
 data Range :: Nat -> Exp [Nat]
 
 type instance Eval (Range x) =
-  Eval (EnumFromTo 0 (Eval ((Fcf.-) x 1)))
+  If (x == 0) '[] (Eval (EnumFromTo 0 (x - 1)))
 
 -- | Create a new rank by adding ones to the left, if the new rank is greater, or combining dimensions (from left to right) into rows, if the new rank is lower.
 --
@@ -413,11 +371,10 @@ rerank r xs =
 
 -- | Create a new rank by adding ones to the left, if the new rank is greater, or combining dimensions (from left to right) into rows, if the new rank is lower.
 --
--- FIXME: works in ghci
--- >> :k! Eval (Rerank 4 [2,3,4])
+-- >>> :k! Eval (Rerank 4 [2,3,4])
 -- ...
 -- = [1, 2, 3, 4]
--- >> :k! Eval (Rerank 2 [2,3,4])
+-- >>> :k! Eval (Rerank 2 [2,3,4])
 -- ...
 -- = [6, 4]
 data Rerank :: Nat -> [Nat] -> Exp [Nat]
@@ -523,29 +480,91 @@ data AsScalar :: [Nat] -> Exp [Nat]
 type instance Eval (AsScalar xs) =
   If (xs == '[1]) '[] xs
 
-data ShapeLTE :: [Nat] -> [Nat] -> Exp Bool
+data LTE :: [Nat] -> [Nat] -> Exp Bool
 
-type instance Eval (ShapeLTE xs ys) =
+type instance Eval (LTE xs ys) =
   Eval (LiftM2 (Fcf.&&)
     (And =<< (ZipWith (Fcf.<=) xs ys))
     (LiftM2 TyEq (Rank xs) (Rank ys)))
 
 -- | Check if a shape is a subset (<=) another shape after reranking.
--- FIXME: works in repl
 --
 -- >>> :k! Eval (IsSubset [2,3,4] [2,3,4])
 -- ...
 -- = True
+--
 -- >>> :k! Eval (IsSubset [1,2] [2,3,4])
 -- ...
 -- = False
+--
 -- >>> :k! Eval (IsSubset [2,1] '[1])
 -- ...
 -- = True
 data IsSubset :: [Nat] -> [Nat] -> Exp Bool
 
 type instance Eval (IsSubset xs ys) =
-  Eval (ShapeLTE ys =<< (Rerank (Eval (Rank ys)) xs))
+  Eval (LTE ys =<< (Rerank (Eval (Rank ys)) xs))
+
+-- | Turn a list of included positions for a given rank into a list of excluded positions
+--
+-- >>> exclude 3 [1,2]
+-- [0]
+exclude :: Int -> [Int] -> [Int]
+exclude r xs = deleteDims xs [0 .. (r - 1)]
+
+-- | Turn a list of included positions for a given rank into a list of excluded positions
+--
+-- > :k! Eval (Exclude 3 [1,2])
+-- ...
+-- = '[0]
+data Exclude :: Nat -> [Nat] -> Exp [Nat]
+
+type instance Eval (Exclude r xs) =
+  Eval (DeleteDims (Eval (EnumFromTo 0 (r - 1))) xs)
+
+-- | Reorder the dimensions of shape according to a list of positions.
+--
+-- >>> reorder [2,3,4] [2,0,1]
+-- [4,2,3]
+reorder :: [Int] -> [Int] -> [Int]
+reorder [] _ = []
+reorder _ [] = []
+reorder s (d : ds) = getDim d s : reorder s ds
+
+-- | Reorder the dimensions of shape according to a list of positions.
+--
+-- >>> :k! Eval (Reorder [2,3,4] [2,0,1])
+-- ...
+-- = [4, 2, 3]
+data Reorder :: [Nat] -> [Nat] -> Exp [Nat]
+
+type instance Eval (Reorder ds xs) =
+    If ( Eval (ReorderOk ds xs))
+      (Eval (Map (Flip GetDim ds) xs))
+      (L.TypeError ('Text "Reorder dimension indices out of bounds"))
+
+data ReorderOk :: [Nat] -> [Nat] -> Exp Bool
+
+type instance Eval (ReorderOk ds xs) =
+  Eval (TyEq (Eval (Rank ds)) (Eval (Rank xs))) &&
+  Eval (And =<< Map (Flip IsFin (Eval (Rank ds))) xs)
+
+-- | remove 1's from a list
+--
+-- >>> squeeze [0,1,2,3]
+-- [0,2,3]
+squeeze :: (Eq a, Multiplicative a) => [a] -> [a]
+squeeze = filter (/= one)
+
+-- | Remove 1's from a list.
+--
+-- >>> :k! (Eval (Squeeze [0,1,2,3]))
+-- (Eval (Squeeze [0,1,2,3])) :: [Natural]
+-- = [0, 2, 3]
+data Squeeze :: [a] -> Exp [a]
+
+type instance Eval (Squeeze xs) =
+  Eval (Filter (Not <=< TyEq 1) xs)
 
 -- | minimum of a list
 --
@@ -574,10 +593,20 @@ type instance Eval (Minimum '[]) = L.TypeError (L.Text "zero ranked")
 type instance Eval (Minimum (x ': xs)) =
   Eval (Foldr Min x xs)
 
+-- | Minimum of two type values.
+--
+-- >>> :k! Eval (Min 0 1)
+-- ...
+-- = 0
 data Min :: a -> a -> Exp a
 
 type instance Eval (Min a b) = If (Eval (a Fcf.< b)) a b
 
+-- | Maximum of two type values.
+--
+-- >>> :k! Eval (Max 0 1)
+-- ...
+-- = 1
 data Max :: a -> a -> Exp a
 
 type instance Eval (Max a b) = If (Eval (a Fcf.> b)) a b
@@ -934,6 +963,71 @@ data InsertDimUncurried :: (Nat,Nat) -> [Nat] -> Exp [Nat]
 type instance Eval (InsertDimUncurried xs ds) =
   Eval (InsertDim (Eval (Fst xs)) (Eval (Snd xs)) ds)
 
+-- | An Array Insert is Ok if the rank of the inserted array is one less than the insertee, and the shapes otherwise line up.
+--
+-- >>> :k! Eval (InsertOk 2 [2,3,4] [2,3])
+-- ...
+-- = True
+-- >>> :k! Eval (InsertOk 0 '[] '[])
+-- ...
+-- = True
+data InsertOk :: Nat -> [Nat] -> [Nat] -> Exp Bool
+
+type instance Eval (InsertOk d s si) =
+  Eval (IsDim d s)
+      && Eval (TyEq si (Eval (DeleteDim d s)))
+
+-- | concatenate two arrays at dimension i
+--
+-- Bespoke logic for scalars.
+--
+-- >>> concatenate 1 [2,3,4] [2,3,4]
+-- [2,6,4]
+-- >>> concatenate 0 [3] []
+-- [4]
+-- >>> concatenate 0 [] [3]
+-- [4]
+-- >>> concatenate 0 [] []
+-- [2]
+concatenate :: Int -> [Int] -> [Int] -> [Int]
+concatenate _ [] [] = [2]
+concatenate _ [] [x] = [x + 1]
+concatenate _ [x] [] = [x + 1]
+concatenate i s0 s1 = take i s0 ++ (getDim i s0 + getDim i s1 : drop (i + 1) s0)
+
+-- | concatenate two arrays at dimension i
+--
+-- Bespoke logic for scalars.
+--
+-- >>> :k! Eval (Concatenate 1 [2,3,4] [2,3,4])
+-- ...
+-- = [2, 6, 4]
+-- >>> :k! Eval (Concatenate 0 '[3] '[])
+-- ...
+-- = '[4]
+-- >>> :k! Eval (Concatenate 0 '[] '[3])
+-- ...
+-- = '[4]
+-- >>> :k! Eval (Concatenate 0 '[] '[])
+-- ...
+-- = '[2]
+data Concatenate :: Nat -> [Nat] -> [Nat] -> Exp [Nat]
+
+type instance Eval (Concatenate i s0 s1) =
+  If (Eval (ConcatenateOk i s0 s1))
+    (Eval (Eval (Take i s0) ++ (Eval (GetDim i s0) + Eval (GetDim i s1) : Eval (Drop (i + 1) s0))))
+    (L.TypeError (L.Text "Concatenate Mis-matched shapes."))
+
+-- | Concatenate is Ok if ranks are the same and the non-indexed portion of the shapes are the same.
+data ConcatenateOk :: Nat -> [Nat] -> [Nat] -> Exp Bool
+
+type instance Eval (ConcatenateOk i s0 s1) =
+  Eval (IsDim i s0) &&
+  Eval (IsDim i s1) &&
+  Eval (LiftM2 TyEq (DeleteDim i s0) (DeleteDim i s1)) &&
+  Eval (LiftM2 TyEq (Rank =<< AsSingleton s0) (Rank =<< AsSingleton s1))
+
+
 -- * multiple dimension manipulations
 
 -- | Get dimensions of a shape.
@@ -1124,157 +1218,6 @@ data DropDims :: [Nat] -> [Nat] -> [Nat] -> Exp [Nat]
 type instance Eval (DropDims ds xs s) =
   Eval (SetDims ds (Eval (ZipWith (Fcf.-) (Eval (GetDims ds s)) xs)) s)
 
--- | Turn a list of included positions for a given rank into a list of excluded positions
---
--- >>> exclude 3 [1,2]
--- [0]
-exclude :: Int -> [Int] -> [Int]
-exclude r xs = deleteDims xs [0 .. (r - 1)]
-
--- | Turn a list of included positions for a given rank into a list of excluded positions
---
--- > :k! Eval (Exclude 3 [1,2])
--- ...
--- = '[0]
-data Exclude :: Nat -> [Nat] -> Exp [Nat]
-
-type instance Eval (Exclude r xs) =
-  Eval (DeleteDims (Eval (EnumFromTo 0 (r - 1))) xs)
-
--- | concatenate two arrays at dimension i
---
--- Bespoke logic for scalars.
---
--- >>> concatenate 1 [2,3,4] [2,3,4]
--- [2,6,4]
--- >>> concatenate 0 [3] []
--- [4]
--- >>> concatenate 0 [] [3]
--- [4]
--- >>> concatenate 0 [] []
--- [2]
-concatenate :: Int -> [Int] -> [Int] -> [Int]
-concatenate _ [] [] = [2]
-concatenate _ [] [x] = [x + 1]
-concatenate _ [x] [] = [x + 1]
-concatenate i s0 s1 = take i s0 ++ (getDim i s0 + getDim i s1 : drop (i + 1) s0)
-
--- | concatenate two arrays at dimension i
---
--- Bespoke logic for scalars.
---
--- >>> :k! Eval (Concatenate 1 [2,3,4] [2,3,4])
--- ...
--- = [2, 6, 4]
--- >>> :k! Eval (Concatenate 0 '[3] '[])
--- ...
--- = '[4]
--- >>> :k! Eval (Concatenate 0 '[] '[3])
--- ...
--- = '[4]
--- >>> :k! Eval (Concatenate 0 '[] '[])
--- ...
--- = '[2]
-data Concatenate :: Nat -> [Nat] -> [Nat] -> Exp [Nat]
-
-type instance Eval (Concatenate i s0 s1) =
-  If (Eval (ConcatenateOk i s0 s1))
-    (Eval (Eval (Take i s0) ++ (Eval (GetDim i s0) + Eval (GetDim i s1) : Eval (Drop (i + 1) s0))))
-    (L.TypeError (L.Text "Concatenate Mis-matched shapes."))
-
--- | Concatenate is Ok if ranks are the same and the non-indexed portion of the shapes are the same.
-data ConcatenateOk :: Nat -> [Nat] -> [Nat] -> Exp Bool
-
-type instance Eval (ConcatenateOk i s0 s1) =
-  Eval (IsDim i s0) &&
-  Eval (IsDim i s1) &&
-  Eval (LiftM2 TyEq (DeleteDim i s0) (DeleteDim i s1)) &&
-  Eval (LiftM2 TyEq (Rank =<< AsSingleton s0) (Rank =<< AsSingleton s1))
-
--- | Reorder the dimensions of shape according to a list of positions.
---
--- >>> reorder [2,3,4] [2,0,1]
--- [4,2,3]
-reorder :: [Int] -> [Int] -> [Int]
-reorder [] _ = []
-reorder _ [] = []
-reorder s (d : ds) = getDim d s : reorder s ds
-
--- | Reorder the dimensions of shape according to a list of positions.
---
--- >>> :k! Eval (Reorder [2,3,4] [2,0,1])
--- ...
--- = [4, 2, 3]
-data Reorder :: [Nat] -> [Nat] -> Exp [Nat]
-
-type instance Eval (Reorder ds xs) =
-    If ( Eval (ReorderOk ds xs))
-      (Eval (Map (Flip GetDim ds) xs))
-      (L.TypeError ('Text "Reorder dimension indices out of bounds"))
-
-data ReorderOk :: [Nat] -> [Nat] -> Exp Bool
-
-type instance Eval (ReorderOk ds xs) =
-  Eval (TyEq (Eval (Rank ds)) (Eval (Rank xs))) &&
-  Eval (And =<< Map (Flip IsFin (Eval (Rank ds))) xs)
-
--- | remove 1's from a list
---
--- >>> squeeze [0,1,2,3]
--- [0,2,3]
-squeeze :: (Eq a, Multiplicative a) => [a] -> [a]
-squeeze = filter (/= one)
-
--- | Remove 1's from a list.
---
--- >>> :k! (Eval (Squeeze [0,1,2,3]))
--- (Eval (Squeeze [0,1,2,3])) :: [Natural]
--- = [0, 2, 3]
-data Squeeze :: [a] -> Exp [a]
-
-type instance Eval (Squeeze xs) =
-  Eval (Filter (Not <=< TyEq 1) xs)
-
-
--- | Expanded shape of a windowed array
---
--- >>> expandWindows [2,2] [4,3,2]
--- [3,2,2,2,2]
-expandWindows :: [Int] -> [Int] -> [Int]
-expandWindows ws ds = List.zipWith (\s' x' -> s' - x' + 1) ds ws <> ws <> List.drop (rank ws) ds
-
--- | Expanded shape of a windowed array
---
--- >>> :k! Eval (ExpandWindows [2,2] [4,3,2])
--- ...
--- = [3, 2, 2, 2, 2]
-data ExpandWindows :: [Nat] -> [Nat] -> Exp [Nat]
-
-type instance Eval (ExpandWindows ws ds) =
-  Eval (Eval (ZipWith (Fcf.-) (Eval (Map ((Fcf.+) 1) ds)) ws) ++ Eval (ws ++ Eval (Drop (Eval (Rank ws)) ds)))
-
--- | Index into windows of an expanded windowed array, given a rank ofthe windows.
---
--- >>> indexWindows 2 [0,1,2,1,1]
--- [2,2,1]
-indexWindows :: Int -> [Int] -> [Int]
-indexWindows r ds = List.zipWith (+) (List.take r ds) (List.take r (List.drop r ds)) <> List.drop (r + r) ds
-
-
--- | An Array Insert is Ok if the rank of the inserted array is one less than the insertee, and the shapes otherwise line up.
---
--- >>> :k! Eval (InsertOk 2 [2,3,4] [2,3])
--- ...
--- = True
--- >>> :k! Eval (InsertOk 0 '[] '[])
--- ...
--- = True
-data InsertOk :: Nat -> [Nat] -> [Nat] -> Exp Bool
-
-type instance Eval (InsertOk d s si) =
-  Eval (IsDim d s)
-      && Eval (TyEq si (Eval (DeleteDim d s)))
-
 -- | reverse an index along specific dimensions.
 --
 -- >>> reverseIndex [0] [2,3,4] [0,1,2]
@@ -1300,8 +1243,38 @@ rotate r xs = drop r' xs <> take r' xs
 rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
 rotateIndex rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
 
+-- | Test whether an index is a diagonal one.
+--
+-- >>> isDiag [2,2,2]
+-- True
+-- >>> isDiag [1,2]
+-- False
 isDiag :: (Eq a) => [a] -> Bool
 isDiag [] = True
 isDiag [_] = True
 isDiag [x, y] = x == y
 isDiag (x : y : xs) = x == y && isDiag (y : xs)
+
+-- | Expanded shape of a windowed array
+--
+-- >>> expandWindows [2,2] [4,3,2]
+-- [3,2,2,2,2]
+expandWindows :: [Int] -> [Int] -> [Int]
+expandWindows ws ds = List.zipWith (\s' x' -> s' - x' + 1) ds ws <> ws <> List.drop (rank ws) ds
+
+-- | Expanded shape of a windowed array
+--
+-- >>> :k! Eval (ExpandWindows [2,2] [4,3,2])
+-- ...
+-- = [3, 2, 2, 2, 2]
+data ExpandWindows :: [Nat] -> [Nat] -> Exp [Nat]
+
+type instance Eval (ExpandWindows ws ds) =
+  Eval (Eval (ZipWith (Fcf.-) (Eval (Map ((Fcf.+) 1) ds)) ws) ++ Eval (ws ++ Eval (Drop (Eval (Rank ws)) ds)))
+
+-- | Index into windows of an expanded windowed array, given a rank of the windows.
+--
+-- >>> indexWindows 2 [0,1,2,1,1]
+-- [2,2,1]
+indexWindows :: Int -> [Int] -> [Int]
+indexWindows r ds = List.zipWith (+) (List.take r ds) (List.take r (List.drop r ds)) <> List.drop (r + r) ds
