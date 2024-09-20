@@ -32,9 +32,10 @@
 module NumHask.Array.Shape
   ( -- * Naturals
     withSomeNat,
-    valueOf,
     int,
-    SNats (..),
+    SNat,
+    pattern SNat,
+    SNats,
     pattern SNats,
     fromSNats,
     ints,
@@ -77,30 +78,7 @@ module NumHask.Array.Shape
     Min,
     minimum,
     Minimum,
-    incAt,
-    IncAt,
-    decAt,
-    DecAt,
-    insertDim,
-    InsertDim,
-    InsertDimUncurried,
-    preDeletePositions,
-    PreDeletePositions,
-    preInsertPositions,
-    PreInsertPositions,
-    insertDims,
-    InsertDims,
-    setDims,
-    SetDims,
-    setDimsT,
-    SetDimsT,
-    modifyDims,
-    deleteDims,
-    DeleteDims,
-    takeDims,
-    TakeDims,
-    dropDims,
-    DropDims,
+
     exclude,
     Exclude,
     concatenate,
@@ -114,13 +92,17 @@ module NumHask.Array.Shape
     expandWindows,
     ExpandWindows,
     indexWindows,
+
+    -- * Fcf
     Fcf.Eval,
 
-    -- * Assertions
+    -- * Position
     isFin,
     IsFin,
     isFins,
     IsFins,
+    IsDim,
+    LastPos,
 
     -- * index-only operations
     reverseIndex,
@@ -130,13 +112,17 @@ module NumHask.Array.Shape
     EnumFromTo,
     Foldl',
 
-    -- * Shape dimension manipulation
+    -- * dimension manipulation
     GetIndex,
     SetIndex,
     getDim,
     GetDim,
     modifyDim,
     ModifyDim,
+    incAt,
+    IncAt,
+    decAt,
+    DecAt,
     setDim,
     SetDim,
     takeDim,
@@ -145,6 +131,29 @@ module NumHask.Array.Shape
     DropDim,
     deleteDim,
     DeleteDim,
+    insertDim,
+    InsertDim,
+    InsertDimUncurried,
+
+    -- multiple dimension operations
+    getDims,
+    GetDims,
+    modifyDims,
+    insertDims,
+    InsertDims,
+    preDeletePositions,
+    PreDeletePositions,
+    preInsertPositions,
+    PreInsertPositions,
+    setDims,
+    SetDims,
+    deleteDims,
+    DeleteDims,
+    dropDims,
+    DropDims,
+
+    -- Specific check
+    InsertOk,
   )
 where
 
@@ -164,7 +173,7 @@ import GHC.TypeLits (TypeError, ErrorMessage(..))
 import Text.Read
 import Data.Type.Ord hiding (Min, Max)
 import Unsafe.Coerce
-import Fcf hiding (type (&&), type (+), type (-), type (++))
+import Fcf hiding (type (&&), type (||), type (+), type (-), type (++))
 import Fcf qualified
 import Fcf.Class.Foldable
 import Fcf.Data.List
@@ -194,18 +203,11 @@ withSomeNat n k = withSomeSNat n $
 -- | Get the value of a type level Nat.
 -- Use with explicit type application
 --
--- >>> valueOf @42
+-- >>> int @42
 -- 42
-valueOf :: forall n. (KnownNat n) => Int
-valueOf = Prelude.fromIntegral $ natVal (Proxy :: Proxy n)
-{-# INLINE valueOf #-}
-
--- | Get the value of an SNat as an Int.
---
--- >>> int (SNat @42)
--- 42
-int :: SNat n -> Int
-int = Prelude.fromIntegral . fromSNat
+int :: forall n. (KnownNat n) => Int
+int = Prelude.fromIntegral $ natVal (Proxy :: Proxy n)
+{-# INLINE int #-}
 
 -- | Mimics SNat from GHC.TypeNats
 newtype SNats (ns :: [Nat]) = UnsafeSNats [Nat]
@@ -224,12 +226,12 @@ pattern SNats <- (knownNatsInstance -> KnownNatsInstance)
 fromSNats :: SNats s -> [Nat]
 fromSNats (UnsafeSNats s) = s
 
--- | Get the value of an SNats as an [Int].
+-- | Get the value of a KnownNats as an [Int].
 --
--- >>> ints (SNats @[2,3])
+-- >>> ints @[2,3]
 -- [2,3]
-ints :: SNats ns -> [Int]
-ints = fmap Prelude.fromIntegral . fromSNats
+ints :: forall s. KnownNats s => [Int]
+ints = fmap Prelude.fromIntegral (fromSNats (SNats :: SNats s))
 
 -- An internal data type that is only used for defining the SNat pattern
 -- synonym.
@@ -336,7 +338,7 @@ instance Show (Fin n) where
 -- >>> safeFin 2 :: Maybe (Fin 2)
 -- Nothing
 safeFin :: forall n. (KnownNat n) => Int -> Maybe (Fin n)
-safeFin x = bool Nothing (Just (UnsafeFin x)) (x >= 0 && x < valueOf @n)
+safeFin x = bool Nothing (Just (UnsafeFin x)) (x >= 0 && x < int @n)
 
 -- | Fins most often represents (finite) indexes for multiple dimensions (of a multi-dimensioned hyper-rectangular array).
 type role Fins nominal
@@ -613,6 +615,182 @@ data Max :: a -> a -> Exp a
 
 type instance Eval (Max a b) = If (Eval (a Fcf.> b)) a b
 
+-- | Check if i is a valid Fin (aka in-bounds index of a dimension)
+--
+-- >>> isFin 0 2
+-- True
+-- >>> isFin 2 2
+-- False
+isFin :: Int -> Int -> Bool
+isFin i d = (zero <= i && i + one <= d)
+
+-- | Check if i is a valid Fin (aka in-bounds index of a dimension)
+--
+-- >>> :k! Eval (IsFin 0 2)
+-- ...
+-- = True
+-- >>> :k! Eval (IsFin 2 2)
+-- ...
+-- = False
+data IsFin :: Nat -> Nat -> Exp Bool
+
+type instance Eval (IsFin x d) =
+  Eval ((Fcf.<) x d)
+
+-- | Check if i is a valid Fins (aka in-bounds index of a Shape)
+--
+-- >>> isFins [0,1] [2,2]
+-- True
+-- >>> isFins [0,1] [2,1]
+-- False
+isFins :: [Int] -> [Int] -> Bool
+isFins xs ds = and $ zipWith isFin xs ds
+
+-- | Check if i is a valid Fins (aka in-bounds index of a Shape)
+--
+-- >>> :k! Eval (IsFins [0,1] [2,2])
+-- ...
+-- = True
+-- >>> :k! Eval (IsFins [0,1] [2,1])
+-- ...
+-- = False
+data IsFins :: [Nat] -> [Nat] -> Exp Bool
+
+type instance Eval (IsFins xs ds) =
+  Eval (And (Eval (ZipWith IsFin xs ds)))
+
+-- | Is a value a valid dimension of a shape.
+-- >>> :k! Eval (IsDim 2 [2,3,4])
+-- ...
+-- = True
+-- >>> :k! Eval (IsDim 0 '[])
+-- ...
+-- = True
+data IsDim :: Nat -> [Nat] -> Exp Bool
+
+type instance Eval (IsDim d s) =
+  Eval (IsFin d =<< Rank s) ||
+  (0 == d && s == '[])
+
+-- | Get the last position of a dimension of a shape.
+-- >>> :k! Eval (LastPos 2 [2,3,4])
+-- ...
+-- = 3
+-- >>> :k! Eval (LastPos 0 '[])
+-- ...
+-- = 0
+data LastPos :: Nat -> [Nat] -> Exp Nat
+
+type instance Eval (LastPos d s) =
+  If (0 == d && s == '[]) 0
+  (Eval (GetDim d s) - 1)
+
+-- | reverse an index along specific dimensions.
+--
+-- >>> reverseIndex [0] [2,3,4] [0,1,2]
+-- [1,1,2]
+reverseIndex :: [Int] -> [Int] -> [Int] -> [Int]
+reverseIndex ds ns xs = fmap (\(i, x, n) -> bool x (n - 1 - x) (i `elem` ds)) (zip3 [0 ..] xs ns)
+
+-- | rotate an index along specific dimensions.
+--
+-- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
+-- [1,1,2]
+rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
+rotateIndex rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
+
+-- | Enumerate between two Nats
+--
+-- >>> :k! Eval (EnumFromTo 0 3)
+-- ...
+-- = [0, 1, 2, 3]
+data EnumFromTo :: Nat -> Nat -> Exp [Nat]
+
+type instance Eval (EnumFromTo a b) = Eval (Unfoldr (EnumFromToHelper b) a)
+
+data EnumFromToHelper :: Nat -> Nat -> Exp (Maybe (a, Nat))
+type instance Eval (EnumFromToHelper b a) =
+  If (Eval (a Fcf.> b))
+    'Nothing
+    ('Just '(a, a+1))
+
+-- | Left fold.
+--
+-- >>> :k! Eval (Foldl' (Fcf.+) 0 [1,2,3])
+-- ...
+-- = 6
+data Foldl' :: (b -> a -> Exp b) -> b -> t a -> Exp b
+
+type instance Eval (Foldl' f y '[]) = y
+type instance Eval (Foldl' f y (x ': xs)) = Eval (Foldl' f (Eval (f y x)) xs)
+
+-- | Get an element at a given index.
+--
+-- >>> :kind! Eval (GetIndex 2 [2,3,4])
+-- ...
+-- = Just 4
+data GetIndex :: Nat -> [a] -> Exp (Maybe a)
+
+type instance Eval (GetIndex d xs) = GetIndexImpl d xs
+
+type family GetIndexImpl (n :: Nat) (xs :: [k]) where
+  GetIndexImpl _ '[] = 'Nothing
+  GetIndexImpl 0 (x ': _) = 'Just x
+  GetIndexImpl n (_ ': xs) = GetIndexImpl (n - 1) xs
+
+-- | getDim i xs is the i'th element of xs. getDim 0 [] is 1 (to account for scalars). Error if out-of-bounds.
+--
+-- >>> getDim 1 [2,3,4]
+-- 3
+-- >>> getDim 3 [2,3,4]
+-- *** Exception: getDim outside bounds
+-- ...
+-- >>> getDim 0 []
+-- 1
+getDim :: Int -> [Int] -> Int
+getDim 0 [] = 1
+getDim i s = fromMaybe (error "getDim outside bounds") (s List.!? i)
+
+-- | GetDim i xs is the i'th element of xs. getDim 0 [] is 1 (to account for scalars). Error if out-of-bounds or non-computable (usually unknown to the compiler).
+--
+-- >>> :k! Eval (GetDim 1 [2,3,4])
+-- ...
+-- = 3
+-- >>> :k! Eval (GetDim 3 [2,3,4])
+-- ...
+-- = (TypeError ...)
+-- >>> :k! Eval (GetDim 0 '[])
+-- ...
+-- = 1
+data GetDim :: Nat -> [Nat] -> Exp Nat
+type instance Eval (GetDim n xs) =
+    If (Eval (And [(Eval (TyEq n 0)), (Eval (TyEq xs ('[]::[Nat])))])) 1
+    (Eval (FromMaybe (L.TypeError (L.Text "GetDim out of bounds or non-computable: " :<>: ShowType n :<>: L.Text " " :<>: ShowType xs)) (Eval (GetIndex n xs))))
+
+-- | modify an index at a specific dimension. Errors if out of bounds.
+--
+-- >>> modifyDim 0 (+1) [0,1,2]
+-- [1,1,2]
+-- >>> modifyDim 0 (+1) []
+-- [2]
+modifyDim :: Int -> (Int -> Int) -> [Int] -> [Int]
+modifyDim 0 f [] = [f 1]
+modifyDim d f xs =
+  getDim d xs &
+  f &
+  (:drop (d+1) xs) &
+  (take d xs <>)
+
+-- | modify an index at a specific dimension. Errors if out of bounds.
+--
+-- >>> :k! Eval (ModifyDim 0 ((Fcf.+) 1) [0,1,2])
+-- ...
+-- = [1, 1, 2]
+data ModifyDim :: Nat -> (Nat -> Exp Nat) -> [Nat] -> Exp [Nat]
+
+type instance Eval (ModifyDim d f s) =
+  Eval ( LiftM2 (Fcf.++) (Take d s) (LiftM2 Cons (f =<< (GetDim d s)) (Drop (d+1) s)))
+
 -- | Increment the index at a dimension of a shape by one. Scalars turn into singletons.
 --
 -- >>> incAt 1 [2,3,4]
@@ -651,6 +829,151 @@ data DecAt :: Nat -> [Nat] -> Exp [Nat]
 
 type instance Eval (DecAt d ds) =
   Eval (ModifyDim d (Flip (Fcf.-) 1) ds)
+
+
+-- | replace an index at a specific dimension, or transform a scalar into being one-dimensional.
+--
+-- >>> setDim 0 1 [2,3,4]
+-- [1,3,4]
+-- >>> setDim 0 3 []
+-- [3]
+setDim :: Int -> Int -> [Int] -> [Int]
+setDim d x xs = modifyDim d (const x) xs
+
+-- | replace an index at a specific dimension.
+--
+-- >>> :k! Eval (SetDim 0 1 [2,3,4])
+-- ...
+-- = [1, 3, 4]
+data SetDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
+
+type instance Eval (SetDim d x ds) =
+  Eval (ModifyDim d (ConstFn x) ds)
+
+data SetDimUncurried :: (Nat,Nat) -> [Nat] -> Exp [Nat]
+
+type instance Eval (SetDimUncurried xs ds) =
+  Eval (SetDim (Eval (Fst xs)) (Eval (Snd xs)) ds)
+
+-- | Take along a dimension.
+--
+-- >>> takeDim 0 1 [2,3,4]
+-- [1,3,4]
+takeDim :: Int -> Int -> [Int] -> [Int]
+takeDim d t s = modifyDim d (min t) s
+
+-- | Take along a dimension.
+--
+-- >>> :k! Eval (TakeDim 0 1 [2,3,4])
+-- ...
+-- = [1, 3, 4]
+data TakeDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
+
+type instance Eval (TakeDim d t s) =
+  Eval (
+    ModifyDim d (Min t) s
+  )
+
+-- | Drop along a dimension.
+--
+-- >>> dropDim 2 1 [2,3,4]
+-- [2,3,3]
+dropDim :: Int -> Int -> [Int] -> [Int]
+dropDim d t s = modifyDim d (max 0 . (\x -> x - t)) s
+
+-- | Drop along a dimension.
+--
+-- >>> :k! Eval (DropDim 2 1 [2,3,4])
+-- ...
+-- = [2, 3, 3]
+data DropDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
+
+type instance Eval (DropDim d t s) =
+  Eval (
+    ModifyDim d
+    (Max 0 <=< (Flip (Fcf.-) t))
+    s)
+
+-- | delete the i'th dimension. No effect on a scalar.
+--
+-- >>> deleteDim 1 [2, 3, 4]
+-- [2,4]
+-- >>> deleteDim 2 []
+-- []
+deleteDim :: Int -> [Int] -> [Int]
+deleteDim i s = take i s ++ drop (i + 1) s
+
+-- | delete the i'th dimension
+--
+-- >>> :k! Eval (DeleteDim 1 [2, 3, 4])
+-- ...
+-- = [2, 4]
+-- >>> :k! Eval (DeleteDim 1 '[])
+-- ...
+-- = '[]
+data DeleteDim :: Nat -> [Nat] -> Exp [Nat]
+
+type instance Eval (DeleteDim i ds) =
+  Eval (LiftM2 (Fcf.++) (Take i ds) (Drop (i + 1) ds))
+
+-- | Insert a new dimension at a position (or at the end if > rank).
+--
+-- >>> insertDim 1 3 [2,4]
+-- [2,3,4]
+-- >>> insertDim 0 4 []
+-- [4]
+insertDim :: Int -> Int -> [Int] -> [Int]
+insertDim d i s = take d s ++ (i : drop d s)
+
+-- | Insert a new dimension at a position (or at the end if > rank).
+--
+-- >>> :k! Eval (InsertDim 1 3 [2,4])
+-- ...
+-- = [2, 3, 4]
+-- >>> :k! Eval (InsertDim 0 4 '[])
+-- ...
+-- = '[4]
+data InsertDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
+
+type instance Eval (InsertDim d i ds) =
+  Eval (LiftM2 (Fcf.++) (Take d ds) ((Cons i) =<< (Drop d ds)))
+
+data InsertDimUncurried :: (Nat,Nat) -> [Nat] -> Exp [Nat]
+
+type instance Eval (InsertDimUncurried xs ds) =
+  Eval (InsertDim (Eval (Fst xs)) (Eval (Snd xs)) ds)
+
+-- * multiple dimension manipulations
+
+-- | Get dimensions of a shape.
+--
+-- >>> getDims [2,0] [2,3,4]
+-- [4,2]
+-- >>> getDims [2] []
+-- []
+getDims :: [Int] -> [Int] -> [Int]
+getDims _ [] = []
+getDims i s = (flip getDim s) <$> i
+
+-- | Get dimensions of a shape.
+--
+-- >>> :k! Eval (GetDims [2,0] [2,3,4])
+-- ...
+-- = [4, 2]
+-- >>> :k! Eval (GetDims '[2] '[])
+-- ...
+-- = '[(TypeError ...)]
+data GetDims :: [Nat] -> [Nat] -> Exp [Nat]
+
+type instance Eval (GetDims xs ds) =
+  Eval (Map (Flip GetDim ds) xs)
+
+-- | modify dimensions of a shape with (separate) functions.
+--
+-- >>> modifyDims [0,1] [(+1), (+5)] [2,3,4]
+-- [3,8,4]
+modifyDims :: [Int] -> [Int -> Int] -> [Int] -> [Int]
+modifyDims ds fs ns = foldl' (\ns' (d, f) -> modifyDim d f ns') ns (zip ds fs)
 
 -- | Convert a list of positions that reference deletions according to a final shape to one that references deletions relative to an initial shape.
 --
@@ -771,7 +1094,7 @@ data InsertDims :: [Nat] -> [Nat] -> [Nat] -> Exp [Nat]
 type instance Eval (InsertDims ds xs s) =
   Eval (Foldl' (Flip InsertDimUncurried) s (Eval (Zip (Eval (PreInsertPositions ds)) xs)))
 
--- | replace indexes with a new value according to a dimension list.
+-- | Set dimensions of a shape.
 --
 -- >>> setDims [0,1] [1,5] [2,3,4]
 -- [1,5,4]
@@ -781,7 +1104,7 @@ type instance Eval (InsertDims ds xs s) =
 setDims :: [Int] -> [Int] -> [Int] -> [Int]
 setDims ds xs ns = foldl' (\ns' (d, x) -> setDim d x ns') ns (zip ds xs)
 
--- | replace indexes with a new value according to a dimension list.
+-- | Set dimensions of a shape.
 --
 -- >>> :k! Eval (SetDims [0,1] [1,5] [2,3,4])
 -- ...
@@ -795,79 +1118,24 @@ data SetDims :: [Nat] -> [Nat] -> [Nat] -> Exp [Nat]
 type instance Eval (SetDims ds xs ns) =
   Eval (Foldl' (Flip SetDimUncurried) ns (Eval (Zip ds xs)))
 
--- | replace indexes dimension,value tuple list.
---
--- >>> setDimsT [(0,1),(1,5)] [2,3,4]
--- [1,5,4]
---
--- >>> setDimsT [(0,3)] []
--- [3]
-setDimsT :: [(Int, Int)] -> [Int] -> [Int]
-setDimsT ts ns = foldl' (\ns' (d, x) -> setDim d x ns') ns ts
-
--- | replace indexes with a new value according to a dimension list.
---
--- >>> :k! Eval (SetDims [0,1] [1,5] [2,3,4])
--- ...
--- = [1, 5, 4]
---
--- >>> :k! Eval (SetDims '[0] '[3] '[])
--- ...
--- = '[3]
-data SetDimsT :: t (Nat,Nat) -> [Nat] -> Exp [Nat]
-
-type instance Eval (SetDimsT ts ns) =
-  Eval (Foldl' (Flip SetDimUncurried) ns ts)
-
--- | modify indexes with (separate) functions according to a dimension list.
---
--- >>> modifyDims [0,1] [(+1), (+5)] [2,3,4]
--- [3,8,4]
-modifyDims :: [Int] -> [Int -> Int] -> [Int] -> [Int]
-modifyDims ds fs ns = foldl' (\ns' (d, f) -> modifyDim d f ns') ns (zip ds fs)
-
--- | Take dimensions by index.
---
--- >>> takeDims [2,0] [2,3,4]
--- [4,2]
--- >>> takeDims [2] []
--- []
-takeDims :: [Int] -> [Int] -> [Int]
-takeDims _ [] = []
-takeDims i s = (s List.!!) <$> i
-
--- | Take dimensions by index.
---
--- >>> :k! Eval (TakeDims [2,0] [2,3,4])
--- ...
--- = [4, 2]
--- >>> :k! Eval (TakeDims '[2] '[])
--- ...
--- = '[(TypeError ...)]
-data TakeDims :: [Nat] -> [Nat] -> Exp [Nat]
-
-type instance Eval (TakeDims xs ds) =
-  Eval (Map (Flip GetDim ds) xs)
-
 -- | Compute new size given a drop,n tuple list
 --
--- >>> dropDims [(0,1),(2,3)] [2,3,4]
+-- >>> dropDims [0,2] [1,3] [2,3,4]
 -- [1,3,1]
-dropDims :: [(Int, Int)] -> [Int] -> [Int]
-dropDims ts ds = setDimsT ts' ds
+dropDims :: [Int] -> [Int] -> [Int] -> [Int]
+dropDims ds xs s = setDims ds xs' s
   where
-    xs' = zipWith (-) (takeDims (fmap fst ts) ds) (fmap snd ts)
-    ts' = zip (fmap fst ts) xs'
+    xs' = zipWith (-) (getDims ds s) xs
 
--- | Compute new size given a drop,n tuple list
+-- | Drop a number of elements of a shape along the supplied dimensions.
 --
--- >>> :k! Eval (DropDims [ '(0,1), '(2,3)] [2,3,4])
+-- >>> :k! Eval (DropDims [0,2] [1,3] [2,3,4])
 -- ...
 -- = [1, 3, 1]
-data DropDims :: [(Nat,Nat)] -> [Nat] -> Exp [Nat]
+data DropDims :: [Nat] -> [Nat] -> [Nat] -> Exp [Nat]
 
-type instance Eval (DropDims ts ds) =
-  Eval (SetDimsT (Eval (Zip (Eval (Map Fst ts)) (Eval (ZipWith (Fcf.-) (Eval (TakeDims (Eval (Map Fst ts)) ds)) (Eval (Map Snd ts)))))) ds)
+type instance Eval (DropDims ds xs s) =
+  Eval (SetDims ds (Eval (ZipWith (Fcf.-) (Eval (GetDims ds s)) xs)) s)
 
 -- | Turn a list of included positions for a given rank into a list of excluded positions
 --
@@ -885,7 +1153,6 @@ data Exclude :: Nat -> [Nat] -> Exp [Nat]
 
 type instance Eval (Exclude r xs) =
   Eval (DeleteDims (Eval (EnumFromTo 0 (Eval ((Fcf.-) r 1)))) xs)
-
 
 -- | concatenate two arrays at dimension i
 --
@@ -1011,264 +1278,17 @@ type instance Eval (ExpandWindows ws ds) =
 indexWindows :: Int -> [Int] -> [Int]
 indexWindows r ds = List.zipWith (+) (List.take r ds) (List.take r (List.drop r ds)) <> List.drop (r + r) ds
 
--- | Check if i is a valid Fin (aka in-bounds index of a dimension)
---
--- >>> isFin 0 2
--- True
--- >>> isFin 2 2
--- False
-isFin :: Int -> Int -> Bool
-isFin i d = (zero <= i && i + one <= d)
 
--- | Check if i is a valid Fin (aka in-bounds index of a dimension)
+-- | An Array Insert is Ok if the rank of the inserted array is one less than the insertee, and the shapes otherwise line up.
 --
--- >>> :k! Eval (IsFin 0 2)
+-- >>> :k! Eval (InsertOk 2 [2,3,4] [2,3])
 -- ...
 -- = True
--- >>> :k! Eval (IsFin 2 2)
--- ...
--- = False
-data IsFin :: Nat -> Nat -> Exp Bool
-
-type instance Eval (IsFin x d) =
-  Eval ((Fcf.<) x d)
-
--- | Check if i is a valid Fins (aka in-bounds index of a Shape)
---
--- >>> isFins [0,1] [2,2]
--- True
--- >>> isFins [0,1] [2,1]
--- False
-isFins :: [Int] -> [Int] -> Bool
-isFins xs ds = and $ zipWith isFin xs ds
-
--- | Check if i is a valid Fins (aka in-bounds index of a Shape)
---
--- >>> :k! Eval (IsFins [0,1] [2,2])
+-- >>> :k! Eval (InsertOk 0 '[] '[])
 -- ...
 -- = True
--- >>> :k! Eval (IsFins [0,1] [2,1])
--- ...
--- = False
-data IsFins :: [Nat] -> [Nat] -> Exp Bool
+data InsertOk :: Nat -> [Nat] -> [Nat] -> Exp Bool
 
-type instance Eval (IsFins xs ds) =
-  Eval (And (Eval (ZipWith IsFin xs ds)))
-
--- | reverse an index along specific dimensions.
---
--- >>> reverseIndex [0] [2,3,4] [0,1,2]
--- [1,1,2]
-reverseIndex :: [Int] -> [Int] -> [Int] -> [Int]
-reverseIndex ds ns xs = fmap (\(i, x, n) -> bool x (n - 1 - x) (i `elem` ds)) (zip3 [0 ..] xs ns)
-
--- | rotate an index along specific dimensions.
---
--- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
--- [1,1,2]
-rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
-rotateIndex rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
-
--- | Enumerate between two Nats
---
--- >>> :k! Eval (EnumFromTo 0 3)
--- ...
--- = [0, 1, 2, 3]
-data EnumFromTo :: Nat -> Nat -> Exp [Nat]
-
-type instance Eval (EnumFromTo a b) = Eval (Unfoldr (EnumFromToHelper b) a)
-
-data EnumFromToHelper :: Nat -> Nat -> Exp (Maybe (a, Nat))
-type instance Eval (EnumFromToHelper b a) =
-  If (Eval (a Fcf.> b))
-    'Nothing
-    ('Just '(a, a+1))
-
--- | Left fold.
---
--- >>> :k! Eval (Foldl' (Fcf.+) 0 [1,2,3])
--- ...
--- = 6
-data Foldl' :: (b -> a -> Exp b) -> b -> t a -> Exp b
-
-type instance Eval (Foldl' f y '[]) = y
-type instance Eval (Foldl' f y (x ': xs)) = Eval (Foldl' f (Eval (f y x)) xs)
-
--- | Get an element at a given index.
---
--- >>> :kind! Eval (GetIndex 2 [2,3,4])
--- ...
--- = Just 4
-data GetIndex :: Nat -> [a] -> Exp (Maybe a)
-
-type instance Eval (GetIndex d xs) = GetIndexImpl d xs
-
-type family GetIndexImpl (n :: Nat) (xs :: [k]) where
-  GetIndexImpl _ '[] = 'Nothing
-  GetIndexImpl 0 (x ': _) = 'Just x
-  GetIndexImpl n (_ ': xs) = GetIndexImpl (n - 1) xs
-
--- | getDim i xs is the i'th element of xs. getDim 0 [] is 1 (to account for scalars). Error if out-of-bounds.
---
--- >>> getDim 1 [2,3,4]
--- 3
--- >>> getDim 3 [2,3,4]
--- *** Exception: getDim outside bounds
--- ...
--- >>> getDim 0 []
--- 1
-getDim :: Int -> [Int] -> Int
-getDim 0 [] = 1
-getDim i s = fromMaybe (error "getDim outside bounds") (s List.!? i)
-
--- | GetDim i xs is the i'th element of xs. getDim 0 [] is 1 (to account for scalars). Error if out-of-bounds or non-computable (usually unknown to the compiler).
---
--- >>> :k! Eval (GetDim 1 [2,3,4])
--- ...
--- = 3
--- >>> :k! Eval (GetDim 3 [2,3,4])
--- ...
--- = (TypeError ...)
--- >>> :k! Eval (GetDim 0 '[])
--- ...
--- = 1
-data GetDim :: Nat -> [Nat] -> Exp Nat
-type instance Eval (GetDim n xs) =
-    If (Eval (And [(Eval (TyEq n 0)), (Eval (TyEq xs ('[]::[Nat])))])) 1
-    (Eval (FromMaybe (L.TypeError (L.Text "GetDim out of bounds or non-computable: " :<>: ShowType n :<>: L.Text " " :<>: ShowType xs)) (Eval (GetIndex n xs))))
-
--- | modify an index at a specific dimension. Errors if out of bounds.
---
--- >>> modifyDim 0 (+1) [0,1,2]
--- [1,1,2]
--- >>> modifyDim 0 (+1) []
--- [2]
-modifyDim :: Int -> (Int -> Int) -> [Int] -> [Int]
-modifyDim 0 f [] = [f 1]
-modifyDim d f xs =
-  getDim d xs &
-  f &
-  (:drop (d+1) xs) &
-  (take d xs <>)
-
--- | modify an index at a specific dimension. Errors if out of bounds.
---
--- >>> :k! Eval (ModifyDim 0 ((Fcf.+) 1) [0,1,2])
--- ...
--- = [1, 1, 2]
-data ModifyDim :: Nat -> (Nat -> Exp Nat) -> [Nat] -> Exp [Nat]
-
-type instance Eval (ModifyDim d f s) =
-  Eval ( LiftM2 (Fcf.++) (Take d s) (LiftM2 Cons (f =<< (GetDim d s)) (Drop (d+1) s)))
-
--- | replace an index at a specific dimension, or transform a scalar into being one-dimensional.
---
--- >>> setDim 0 1 [2,3,4]
--- [1,3,4]
--- >>> setDim 0 3 []
--- [3]
-setDim :: Int -> Int -> [Int] -> [Int]
-setDim d x xs = modifyDim d (const x) xs
-
--- | replace an index at a specific dimension.
---
--- >>> :k! Eval (SetDim 0 1 [2,3,4])
--- ...
--- = [1, 3, 4]
-data SetDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
-
-type instance Eval (SetDim d x ds) =
-  Eval (ModifyDim d (ConstFn x) ds)
-
-data SetDimUncurried :: (Nat,Nat) -> [Nat] -> Exp [Nat]
-
-type instance Eval (SetDimUncurried xs ds) =
-  Eval (SetDim (Eval (Fst xs)) (Eval (Snd xs)) ds)
-
--- | Take along a dimension.
---
--- >>> takeDim 0 1 [2,3,4]
--- [1,3,4]
-takeDim :: Int -> Int -> [Int] -> [Int]
-takeDim d t s = modifyDim d (min t) s
-
--- | Take along a dimension.
---
--- >>> :k! Eval (TakeDim 0 1 [2,3,4])
--- ...
--- = [1, 3, 4]
-data TakeDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
-
-type instance Eval (TakeDim d t s) =
-  Eval (
-    ModifyDim d (Min t) s
-  )
-
--- | Drop along a dimension.
---
--- >>> dropDim 2 1 [2,3,4]
--- [2,3,3]
-dropDim :: Int -> Int -> [Int] -> [Int]
-dropDim d t s = modifyDim d (max 0 . (\x -> x - t)) s
-
--- | Drop along a dimension.
---
--- >>> :k! Eval (DropDim 2 1 [2,3,4])
--- ...
--- = [2, 3, 3]
-data DropDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
-
-type instance Eval (DropDim d t s) =
-  Eval (
-    ModifyDim d
-    (Max 0 <=< (Flip (Fcf.-) t))
-    s)
-
--- | delete the i'th dimension. No effect on a scalar.
---
--- >>> deleteDim 1 [2, 3, 4]
--- [2,4]
--- >>> deleteDim 2 []
--- []
-deleteDim :: Int -> [Int] -> [Int]
-deleteDim i s = take i s ++ drop (i + 1) s
-
--- | delete the i'th dimension
---
--- >>> :k! Eval (DeleteDim 1 [2, 3, 4])
--- ...
--- = [2, 4]
--- >>> :k! Eval (DeleteDim 1 '[])
--- ...
--- = '[]
-data DeleteDim :: Nat -> [Nat] -> Exp [Nat]
-
-type instance Eval (DeleteDim i ds) =
-  Eval (LiftM2 (Fcf.++) (Take i ds) (Drop (i + 1) ds))
-
--- | Insert a new dimension at a position (or at the end if > rank).
---
--- >>> insertDim 1 3 [2,4]
--- [2,3,4]
--- >>> insertDim 0 4 []
--- [4]
-insertDim :: Int -> Int -> [Int] -> [Int]
-insertDim d i s = take d s ++ (i : drop d s)
-
--- | Insert a new dimension at a position (or at the end if > rank).
---
--- >>> :k! Eval (InsertDim 1 3 [2,4])
--- ...
--- = [2, 3, 4]
--- >>> :k! Eval (InsertDim 0 4 '[])
--- ...
--- = '[4]
-data InsertDim :: Nat -> Nat -> [Nat] -> Exp [Nat]
-
-type instance Eval (InsertDim d i ds) =
-  Eval (LiftM2 (Fcf.++) (Take d ds) ((Cons i) =<< (Drop d ds)))
-
-data InsertDimUncurried :: (Nat,Nat) -> [Nat] -> Exp [Nat]
-
-type instance Eval (InsertDimUncurried xs ds) =
-  Eval (InsertDim (Eval (Fst xs)) (Eval (Snd xs)) ds)
+type instance Eval (InsertOk d s si) =
+  Eval (IsDim d s)
+      && Eval (TyEq si (Eval (DeleteDim d s)))

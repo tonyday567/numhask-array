@@ -884,7 +884,7 @@ takes ::
 takes ts a = backpermute dsNew (List.zipWith (+) start) a
   where
     dsNew = S.setDims ds xsAbs
-    start = List.zipWith (\x s -> bool 0 (s + x) (x<0)) (S.setDimsT ts (replicate (rank a) 0)) (shape a)
+    start = List.zipWith (\x s -> bool 0 (s + x) (x<0)) (S.setDims (fmap fst ts) (fmap snd ts) (replicate (rank a) 0)) (shape a)
     ds = fmap fst ts
     xs = fmap snd ts
     xsAbs = fmap abs xs
@@ -980,7 +980,7 @@ extracts ::
   [Int] ->
   Array a ->
   Array (Array a)
-extracts ds a = tabulate (S.takeDims ds (shape a)) go
+extracts ds a = tabulate (S.getDims ds (shape a)) go
   where
     go s = indexes (List.zip ds s) a
 
@@ -1022,7 +1022,7 @@ joins ::
   Array a
 joins ds a = tabulate (S.insertDims (List.zip ds so) si) go
   where
-    go s = index (index a (S.takeDims ds s)) (S.deleteDims ds s)
+    go s = index (index a (S.getDims ds s)) (S.deleteDims ds s)
     so = shape a
     si = shape (index a (replicate (rank a) 0))
 
@@ -1619,8 +1619,8 @@ concats ::
   Array a
 concats ds n a = backpermute concatDims unconcatDims a
   where
-    concatDims s = S.insertDim n (S.size $ S.takeDims ds s) (S.deleteDims ds s)
-    unconcatDims s = S.insertDims (List.zip ds (S.shapen (S.takeDims ds (shape a)) (S.getDim n s))) (S.deleteDim n s)
+    concatDims s = S.insertDim n (S.size $ S.getDims ds s) (S.deleteDims ds s)
+    unconcatDims s = S.insertDims (List.zip ds (S.shapen (S.getDims ds (shape a)) (S.getDim n s))) (S.deleteDim n s)
 
 -- | Rotate an array along a dimension.
 --
