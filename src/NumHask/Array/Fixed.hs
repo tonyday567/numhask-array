@@ -1786,7 +1786,7 @@ isPrefixOf ::
   (Eq a,
    HasShape s,
    HasShape s',
-   True ~ Eval (ShapeLTE s' (Eval (Rerank (Eval (Rank s')) s)))) =>
+   True ~ Eval (IsSubset s s')) =>
   Array s' a -> Array s a -> Bool
 isPrefixOf p a = p == cut a
 
@@ -1802,7 +1802,7 @@ isSuffixOf ::
    KnownNat r,
    HasShape (Eval (Rerank r s)),
    r ~ Eval (Rank s'),
-   True ~ Eval (ShapeLTE s' (Eval (Rerank (Eval (Rank s')) s)))) =>
+   True ~ Eval (IsSubset s s')) =>
   Array s' a -> Array s a -> Bool
 isSuffixOf p a = p == cutSuffix a
 
@@ -1853,7 +1853,7 @@ cut ::
   forall s' s a.
   (HasShape s,
    HasShape s',
-   True ~ Eval (ShapeLTE s' (Eval (Rerank (Eval (Rank s')) s)))) =>
+   True ~ Eval (IsSubset s s')) =>
   Array s a ->
   Array s' a
 cut a = unsafeBackpermute id a
@@ -1869,7 +1869,7 @@ cutSuffix ::
    KnownNat r,
    HasShape (Eval (Rerank r s)),
    r ~ Eval (Rank s'),
-   True ~ Eval (ShapeLTE s' (Eval (Rerank (Eval (Rank s')) s)))) =>
+   True ~ Eval (IsSubset s s')) =>
   Array s a ->
   Array s' a
 cutSuffix a = unsafeBackpermute (List.zipWith (+) diffDim) a'
@@ -1891,7 +1891,7 @@ pad ::
   a ->
   Array s a ->
   Array s' a
-pad d a = tabulate (\s -> bool d (index a' (unsafeCoerce s)) ((fromFins s) `S.inside` (shape a')))
+pad d a = tabulate (\s -> bool d (index a' (unsafeCoerce s)) ((fromFins s) `S.isFins` (shape a')))
   where
     a' = rerank (SNat @r) a
 
@@ -1913,7 +1913,7 @@ lpad ::
   a ->
   Array s a ->
   Array s' a
-lpad d a = tabulate (\s -> bool d (index a' (UnsafeFins $ olds s)) ((olds s) `S.inside` (shape a')))
+lpad d a = tabulate (\s -> bool d (index a' (UnsafeFins $ olds s)) ((olds s) `S.isFins` (shape a')))
   where
     a' = rerank (SNat @r) a
     gap = List.zipWith (-) (shapeOf @s') (shape a')

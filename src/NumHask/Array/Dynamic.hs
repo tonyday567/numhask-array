@@ -449,7 +449,7 @@ infixl 9 !
 -- >>> a !? [2,3,1]
 -- Nothing
 (!?) :: Array a -> [Int] -> Maybe a
-(!?) a xs = bool Nothing (Just (a ! xs)) (xs `S.inside` shape a)
+(!?) a xs = bool Nothing (Just (a ! xs)) (xs `S.isFins` shape a)
 
 -- | Tabulate an array supplying a shape and a tabulation function.
 --
@@ -1342,7 +1342,7 @@ findNoOverlap i a = r
 
     cl :: [Int] -> [[Int]]
     cl sh = List.filter (P.not . any (> 0) . List.init) $ List.filter (P.not . all (>= 0)) $ arrayAs $ tabulate ((\x -> 2 * x - 1) <$> sh) (\s -> List.zipWith (\x x0 -> x - x0 + 1) s sh)
-    go r' s = index f s && all (P.not . index r') (List.filter (\x -> S.inside x (shape f)) $ fmap (List.zipWith (+) s) (cl (shape iexp)))
+    go r' s = index f s && all (P.not . index r') (List.filter (\x -> S.isFins x (shape f)) $ fmap (List.zipWith (+) s) (cl (shape iexp)))
     r = tabulate (shape f) (go r)
 
 -- | Find the indices of the starting location of one array in another.
@@ -1424,7 +1424,7 @@ pad ::
   [Int] ->
   Array a ->
   Array a
-pad d s' a = tabulate s' (\s -> bool d (index a' s) (s `S.inside` shape a'))
+pad d s' a = tabulate s' (\s -> bool d (index a' s) (s `S.isFins` shape a'))
   where
     a' = rerank (S.rank s') a
 
@@ -1441,7 +1441,7 @@ lpad ::
   [Int] ->
   Array a ->
   Array a
-lpad d s' a = tabulate s' (\s -> bool d (index a' (olds s)) (olds s `S.inside` shape a'))
+lpad d s' a = tabulate s' (\s -> bool d (index a' (olds s)) (olds s `S.isFins` shape a'))
   where
     a' = rerank (S.rank s') a
     gap = List.zipWith (-) s' (shape a')

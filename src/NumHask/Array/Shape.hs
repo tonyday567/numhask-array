@@ -30,11 +30,13 @@
 
 -- | Functions for manipulating shape. The module tends to supply equivalent functionality at type-level and value-level with functions of the same name (except for capitalization).
 module NumHask.Array.Shape
-  ( -- * Naturals
+  ( -- * Type-level Nat
     withSomeNat,
     int,
     SNat,
     pattern SNat,
+
+    -- * Type-level [Nat]
     SNats,
     pattern SNats,
     fromSNats,
@@ -44,6 +46,8 @@ module NumHask.Array.Shape
     SomeNats,
     someNatVals,
     withSomeSNats,
+
+    -- * Shape
     HasShape,
     shapeOf,
     rankOf,
@@ -54,16 +58,13 @@ module NumHask.Array.Shape
     toFins,
     flatten,
     shapen,
-    isDiag,
-    inside,
-    Inside,
-    ShapeLTE,
     asSingleton,
     AsSingleton,
     asScalar,
     AsScalar,
-    rotate,
-    type (++),
+    IsSubset,
+
+    -- * Primitives
     Take,
     Drop,
     Reverse,
@@ -101,18 +102,18 @@ module NumHask.Array.Shape
     IsFin,
     isFins,
     IsFins,
+    isDim,
     IsDim,
+    isDims,
+    IsDims,
+    lastPos,
     LastPos,
-
-    -- * index-only operations
-    reverseIndex,
-    rotateIndex,
 
     -- * combinators
     EnumFromTo,
     Foldl',
 
-    -- * dimension manipulation
+    -- * single dimension
     GetIndex,
     SetIndex,
     getDim,
@@ -133,9 +134,8 @@ module NumHask.Array.Shape
     DeleteDim,
     insertDim,
     InsertDim,
-    InsertDimUncurried,
 
-    -- multiple dimension operations
+    -- multiple dimension
     getDims,
     GetDims,
     modifyDims,
@@ -154,6 +154,13 @@ module NumHask.Array.Shape
 
     -- Specific check
     InsertOk,
+
+    -- * value-only operations
+    reverseIndex,
+    rotate,
+    rotateIndex,
+    isDiag,
+
   )
 where
 
@@ -359,7 +366,7 @@ instance Show (Fins n) where
 -- >>> toFins [2] :: Maybe (Fins '[2])
 -- Nothing
 toFins :: forall s. (HasShape s) => [Int] -> Maybe (Fins s)
-toFins xs = bool Nothing (Just (UnsafeFins xs)) (inside xs (shapeOf @s))
+toFins xs = bool Nothing (Just (UnsafeFins xs)) (isFins xs (shapeOf @s))
 
 -- | Number of dimensions
 --
@@ -472,60 +479,6 @@ shapen ns x =
       ns
 {-# INLINE shapen #-}
 
-isDiag :: (Eq a) => [a] -> Bool
-isDiag [] = True
-isDiag [_] = True
-isDiag [x, y] = x == y
-isDiag (x : y : xs) = x == y && isDiag (y : xs)
-
--- | checks if indices are valid ie they are inside a shape.
---
--- >>> [0,0,0] `inside` [2,3,4]
--- True
--- >>> [1,2,4] `inside` [2,3,4]
--- False
--- >>> [2,1] `inside` [1]
--- False
-inside :: [Int] -> [Int] -> Bool
-inside xs ds = (rank xs == rank ds) && (List.and $ List.zipWith (\x d -> x >= zero && x < d) xs ds)
-
--- | checks if indices are valid ie they are of the same rank and inside a shape.
---
--- FIXME:
--- > :k! Eval (Inside [0,0,0] [2,3,4])
--- Eval (Inside [0,0,0] [2,3,4]) :: Bool
--- = True
--- > :k! Eval (Inside [1,2,4] [2,3,4])
--- Eval (Inside [1,2,4] [2,3,4]) :: Bool
--- = False
--- >>> :k! Eval (Inside [2,1] '[1])
--- Eval (Inside [2,1] '[1]) :: Bool
--- = False
-data Inside :: [Nat] -> [Nat] -> Exp Bool
-
-type instance Eval (Inside xs ds) =
-  Eval (LiftM2 (Fcf.&&)
-    (And =<< (ZipWith (Fcf.<) xs ds))
-    (LiftM2 TyEq (Rank xs) (Rank ds)))
-
--- | Check if a shape is <= another shape (and of the same rank).
--- FIXME:
--- > :k! Eval (ShapeLTE [0,0,0] [2,3,4])
--- Eval (ShapeLTE [0,0,0] [2,3,4]) :: Bool
--- = True
--- > :k! Eval (ShapeLTE [1,2,4] [2,3,4])
--- Eval (ShapeLTE [1,2,4] [2,3,4]) :: Bool
--- = False
--- >>> :k! Eval (ShapeLTE [2,1] '[1])
--- Eval (ShapeLTE [2,1] '[1]) :: Bool
--- = False
-data ShapeLTE :: [Nat] -> [Nat] -> Exp Bool
-
-type instance Eval (ShapeLTE xs ys) =
-  Eval (LiftM2 (Fcf.&&)
-    (And =<< (ZipWith (Fcf.<=) xs ys))
-    (LiftM2 TyEq (Rank xs) (Rank ys)))
-
 -- | Convert a scalar to a dimensioned shape
 --
 -- >>> asSingleton []
@@ -570,18 +523,31 @@ data AsScalar :: [Nat] -> Exp [Nat]
 type instance Eval (AsScalar xs) =
   If (xs == '[1]) '[] xs
 
--- | rotate a list
---
--- >>> rotate 1 [0..3]
--- [1,2,3,0]
--- >>> rotate (-1) [0..3]
--- [3,0,1,2]
-rotate :: Int -> [Int] -> [Int]
-rotate r xs = drop r' xs <> take r' xs
-  where
-    r' = r `mod` List.length xs
+data ShapeLTE :: [Nat] -> [Nat] -> Exp Bool
 
--- | minimum dimension
+type instance Eval (ShapeLTE xs ys) =
+  Eval (LiftM2 (Fcf.&&)
+    (And =<< (ZipWith (Fcf.<=) xs ys))
+    (LiftM2 TyEq (Rank xs) (Rank ys)))
+
+-- | Check if a shape is a subset (<=) another shape after reranking.
+-- FIXME: works in repl
+--
+-- >>> :k! Eval (IsSubset [2,3,4] [2,3,4])
+-- ...
+-- = True
+-- >>> :k! Eval (IsSubset [1,2] [2,3,4])
+-- ...
+-- = False
+-- >>> :k! Eval (IsSubset [2,1] '[1])
+-- ...
+-- = True
+data IsSubset :: [Nat] -> [Nat] -> Exp Bool
+
+type instance Eval (IsSubset xs ys) =
+  Eval (ShapeLTE ys =<< (Rerank (Eval (Rank ys)) xs))
+
+-- | minimum of a list
 --
 -- >>> S.minimum []
 -- *** Exception: zero-ranked
@@ -593,11 +559,12 @@ minimum [] = error "zero-ranked"
 minimum [x] = x
 minimum (x : xs) = P.min x (minimum xs)
 
--- | minimum dimension
+-- | minimum of a list
 --
 -- >>> :k! Eval (Minimum '[])
 -- ...
 -- = (TypeError ...)
+--
 -- >>> :k! Eval (Minimum [2,3,4])
 -- ...
 -- = 2
@@ -644,7 +611,7 @@ type instance Eval (IsFin x d) =
 -- >>> isFins [0,1] [2,1]
 -- False
 isFins :: [Int] -> [Int] -> Bool
-isFins xs ds = and $ zipWith isFin xs ds
+isFins xs ds = length xs == length ds && and (zipWith isFin xs ds)
 
 -- | Check if i is a valid Fins (aka in-bounds index of a Shape)
 --
@@ -657,7 +624,16 @@ isFins xs ds = and $ zipWith isFin xs ds
 data IsFins :: [Nat] -> [Nat] -> Exp Bool
 
 type instance Eval (IsFins xs ds) =
-  Eval (And (Eval (ZipWith IsFin xs ds)))
+  Eval (And (Eval (ZipWith IsFin xs ds))) &&
+  Eval (LiftM2 TyEq (Rank xs) (Rank ds))
+
+-- | Is a value a valid dimension of a shape.
+-- >>> isDim 2 [2,3,4]
+-- True
+-- >>> isDim 0 []
+-- True
+isDim :: Int -> [Int] -> Bool
+isDim d s = isFin d (rank s) || (d == 0 && s == [])
 
 -- | Is a value a valid dimension of a shape.
 -- >>> :k! Eval (IsDim 2 [2,3,4])
@@ -672,6 +648,35 @@ type instance Eval (IsDim d s) =
   Eval (IsFin d =<< Rank s) ||
   (0 == d && s == '[])
 
+-- | Are values valid dimensions of a shape.
+-- >>> isDims [2,1] [2,3,4]
+-- True
+-- >>> isDims [0] []
+-- True
+isDims :: [Int] -> [Int] -> Bool
+isDims ds s = and $ fmap (\d -> isDim d s) ds
+
+-- | Are values valid dimensions of a shape.
+-- >>> :k! Eval (IsDims [2,1] [2,3,4])
+-- ...
+-- = True
+-- >>> :k! Eval (IsDims '[0] '[])
+-- ...
+-- = True
+data IsDims :: [Nat] -> [Nat] -> Exp Bool
+
+type instance Eval (IsDims ds s) =
+  Eval (And =<< Map (Flip IsDim s) ds)
+
+-- | Get the last position of a dimension of a shape.
+-- >>> lastPos 2 [2,3,4]
+-- 3
+-- >>> lastPos 0 []
+-- 0
+lastPos :: Int -> [Int] -> Int
+lastPos d s =
+  bool ((getDim d s) - 1) 0 (0 == d && s == [])
+
 -- | Get the last position of a dimension of a shape.
 -- >>> :k! Eval (LastPos 2 [2,3,4])
 -- ...
@@ -684,20 +689,6 @@ data LastPos :: Nat -> [Nat] -> Exp Nat
 type instance Eval (LastPos d s) =
   If (0 == d && s == '[]) 0
   (Eval (GetDim d s) - 1)
-
--- | reverse an index along specific dimensions.
---
--- >>> reverseIndex [0] [2,3,4] [0,1,2]
--- [1,1,2]
-reverseIndex :: [Int] -> [Int] -> [Int] -> [Int]
-reverseIndex ds ns xs = fmap (\(i, x, n) -> bool x (n - 1 - x) (i `elem` ds)) (zip3 [0 ..] xs ns)
-
--- | rotate an index along specific dimensions.
---
--- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
--- [1,1,2]
-rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
-rotateIndex rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
 
 -- | Enumerate between two Nats
 --
@@ -1064,7 +1055,7 @@ deleteDims i s = foldl' (flip deleteDim) s (preDeletePositions i)
 data DeleteDims :: [Nat] -> [Nat] -> Exp [Nat]
 
 type instance Eval (DeleteDims xs ds) =
-  Eval (Foldl' (Flip DeleteDim) ds (Eval (PreDeletePositions xs)))
+  Eval (Foldl' (Flip DeleteDim) ds =<< PreDeletePositions xs)
 
 -- | insert a list of dimensions according to dimension,position tuple lists.  Note that the list of positions references the final shape and not the initial shape.
 --
@@ -1079,10 +1070,6 @@ insertDims ps s = foldl' (flip (uncurry insertDim)) s ps'
 
 -- | insert a list of dimensions according to dimension,position tuple lists.  Note that the list of positions references the final shape and not the initial shape.
 --
--- >>> import Fcf
--- >>> :k! Eval (Foldl' (Flip InsertDimUncurried) '[] (Eval (Zip (Eval (PreInsertPositions '[0])) '[5])))
--- Eval (Foldl' (Flip InsertDimUncurried) '[] (Eval (Zip (Eval (PreInsertPositions '[0])) '[5]))) :: [Natural]
--- = '[5]
 -- >>> :k! Eval (InsertDims '[0] '[5] '[])
 -- ...
 -- = '[5]
@@ -1092,7 +1079,7 @@ insertDims ps s = foldl' (flip (uncurry insertDim)) s ps'
 data InsertDims :: [Nat] -> [Nat] -> [Nat] -> Exp [Nat]
 
 type instance Eval (InsertDims ds xs s) =
-  Eval (Foldl' (Flip InsertDimUncurried) s (Eval (Zip (Eval (PreInsertPositions ds)) xs)))
+  Eval (Foldl' (Flip InsertDimUncurried) s =<< Flip Zip xs =<< PreInsertPositions ds)
 
 -- | Set dimensions of a shape.
 --
@@ -1116,7 +1103,7 @@ setDims ds xs ns = foldl' (\ns' (d, x) -> setDim d x ns') ns (zip ds xs)
 data SetDims :: [Nat] -> [Nat] -> [Nat] -> Exp [Nat]
 
 type instance Eval (SetDims ds xs ns) =
-  Eval (Foldl' (Flip SetDimUncurried) ns (Eval (Zip ds xs)))
+  Eval (Foldl' (Flip SetDimUncurried) ns =<< Zip ds xs)
 
 -- | Compute new size given a drop,n tuple list
 --
@@ -1152,7 +1139,7 @@ exclude r xs = deleteDims xs [0 .. (r - 1)]
 data Exclude :: Nat -> [Nat] -> Exp [Nat]
 
 type instance Eval (Exclude r xs) =
-  Eval (DeleteDims (Eval (EnumFromTo 0 (Eval ((Fcf.-) r 1)))) xs)
+  Eval (DeleteDims (Eval (EnumFromTo 0 (r - 1))) xs)
 
 -- | concatenate two arrays at dimension i
 --
@@ -1191,12 +1178,6 @@ concatenate i s0 s1 = take i s0 ++ (getDim i s0 + getDim i s1 : drop (i + 1) s0)
 data Concatenate :: Nat -> [Nat] -> [Nat] -> Exp [Nat]
 
 type instance Eval (Concatenate i s0 s1) =
-  Eval (ConcatenateHelper i (Eval (AsSingleton s0)) (Eval (AsSingleton s1)))
-
-data ConcatenateHelper :: Nat -> [Nat] -> [Nat] -> Exp [Nat]
-
-
-type instance Eval (ConcatenateHelper i s0 s1) =
   If (Eval (ConcatenateOk i s0 s1))
     (Eval (Eval (Take i s0) ++ (Eval (GetDim i s0) + Eval (GetDim i s1) : Eval (Drop (i + 1) s0))))
     (L.TypeError (L.Text "Concatenate Mis-matched shapes."))
@@ -1205,9 +1186,10 @@ type instance Eval (ConcatenateHelper i s0 s1) =
 data ConcatenateOk :: Nat -> [Nat] -> [Nat] -> Exp Bool
 
 type instance Eval (ConcatenateOk i s0 s1) =
-  Eval (IsFin i (Eval (Rank s0)))
-      && Eval (TyEq (Eval (DeleteDim i s0)) (Eval (DeleteDim i s1)))
-      && Eval (TyEq (Eval (Rank s0)) (Eval (Rank s1)))
+  Eval (IsDim i s0) &&
+  Eval (IsDim i s1) &&
+  Eval (LiftM2 TyEq (DeleteDim i s0) (DeleteDim i s1)) &&
+  Eval (LiftM2 TyEq (Rank =<< AsSingleton s0) (Rank =<< AsSingleton s1))
 
 -- | Reorder the dimensions of shape according to a list of positions.
 --
@@ -1292,3 +1274,34 @@ data InsertOk :: Nat -> [Nat] -> [Nat] -> Exp Bool
 type instance Eval (InsertOk d s si) =
   Eval (IsDim d s)
       && Eval (TyEq si (Eval (DeleteDim d s)))
+
+-- | reverse an index along specific dimensions.
+--
+-- >>> reverseIndex [0] [2,3,4] [0,1,2]
+-- [1,1,2]
+reverseIndex :: [Int] -> [Int] -> [Int] -> [Int]
+reverseIndex ds ns xs = fmap (\(i, x, n) -> bool x (n - 1 - x) (i `elem` ds)) (zip3 [0 ..] xs ns)
+
+-- | rotate a list
+--
+-- >>> rotate 1 [0..3]
+-- [1,2,3,0]
+-- >>> rotate (-1) [0..3]
+-- [3,0,1,2]
+rotate :: Int -> [a] -> [a]
+rotate r xs = drop r' xs <> take r' xs
+  where
+    r' = r `mod` List.length xs
+
+-- | rotate an index along specific dimensions.
+--
+-- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
+-- [1,1,2]
+rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
+rotateIndex rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
+
+isDiag :: (Eq a) => [a] -> Bool
+isDiag [] = True
+isDiag [_] = True
+isDiag [x, y] = x == y
+isDiag (x : y : xs) = x == y && isDiag (y : xs)
