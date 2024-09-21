@@ -46,8 +46,7 @@ module NumHask.Array.Shape
     withSomeSNats,
 
     -- * Shape
-    HasShape,
-    shapeOf,
+    valuesOf,
     rankOf,
     sizeOf,
     Fin (..),
@@ -59,6 +58,8 @@ module NumHask.Array.Shape
     Range,
     rerank,
     Rerank,
+    DimsOf,
+    EndDimsOf,
     size,
     Size,
     flatten,
@@ -120,6 +121,8 @@ module NumHask.Array.Shape
     insertDim,
     InsertDim,
     InsertOk,
+    SliceOk,
+    SlicesOk,
     concatenate,
     Concatenate,
     ConcatenateOk,
@@ -253,30 +256,29 @@ someNatVals s = withSomeSNats s (\(sn :: SNats s) ->
                 withKnownNats sn (SomeNats @s Proxy))
 
 -- * shape primitives
-type HasShape = KnownNats
 
--- | Supply the value-level of a 'HasShape' as an [Int]
+-- | Supply the value-level of a 'KnownNats' as an [Int]
 --
--- >>> shapeOf @[2,3,4]
+-- >>> valuesOf @[2,3,4]
 -- [2,3,4]
-shapeOf :: forall s. KnownNats s => [Int]
-shapeOf = fmap Prelude.fromIntegral (fromSNats (SNats :: SNats s))
-{-# INLINE shapeOf #-}
+valuesOf :: forall s. KnownNats s => [Int]
+valuesOf = fmap Prelude.fromIntegral (fromSNats (SNats :: SNats s))
+{-# INLINE valuesOf #-}
 
 -- | The rank of a 'Shape'.
 --
 -- >>> rankOf @[2,3,4]
 -- 3
-rankOf :: forall s. (HasShape s) => Int
-rankOf = length (shapeOf @s)
+rankOf :: forall s. (KnownNats s) => Int
+rankOf = length (valuesOf @s)
 {-# INLINE rankOf #-}
 
 -- | The size of a 'Shape'.
 --
 -- >>> sizeOf @[2,3,4]
 -- 24
-sizeOf :: forall s. (HasShape s) => Int
-sizeOf = product (shapeOf @s)
+sizeOf :: forall s. (KnownNats s) => Int
+sizeOf = product (valuesOf @s)
 {-# INLINE sizeOf #-}
 
 -- | Fin most often represents a (finite) zero-based index for a single dimension (of a multi-dimensioned hyper-rectangular array).
@@ -318,8 +320,8 @@ instance Show (Fins n) where
 --
 -- >>> toFins [2] :: Maybe (Fins '[2])
 -- Nothing
-toFins :: forall s. (HasShape s) => [Int] -> Maybe (Fins s)
-toFins xs = bool Nothing (Just (UnsafeFins xs)) (isFins xs (shapeOf @s))
+toFins :: forall s. (KnownNats s) => [Int] -> Maybe (Fins s)
+toFins xs = bool Nothing (Just (UnsafeFins xs)) (isFins xs (valuesOf @s))
 
 -- | Number of dimensions
 --
@@ -384,6 +386,24 @@ type instance Eval (Rerank r xs) =
   (Eval (Eval (Replicate (Eval ((Fcf.-) r (Eval (Rank xs)))) 1) Fcf.++ xs))
   (Eval ((Fcf.++) ('[Eval (Size (Eval (Take ((Eval (Rank xs)) - r + 1) xs)))])
     (Eval (Drop (Eval (Rank xs) + 1 - r) xs))))
+
+-- | Enumerate the dimensions of a shape.
+-- >>> :k! Eval (DimsOf [2,3,4])
+-- ...
+-- = [0, 1, 2]
+data DimsOf :: [Nat] -> Exp [Nat]
+
+type instance Eval (DimsOf xs) =
+  Eval (Range =<< Rank xs)
+
+-- | Enumerate the final dimensions of a shape.
+-- >>> :k! Eval (EndDimsOf [1,0] [2,3,4])
+-- ...
+-- = [2, 1]
+data EndDimsOf :: [Nat] -> [Nat] -> Exp [Nat]
+
+type instance Eval (EndDimsOf xs s) =
+  Eval (LiftM2 Take (Rank xs) (Reverse =<< DimsOf s))
 
 -- | Total number of elements (if the list is the shape of a hyper-rectangular array).
 --
@@ -963,7 +983,7 @@ data InsertDimUncurried :: (Nat,Nat) -> [Nat] -> Exp [Nat]
 type instance Eval (InsertDimUncurried xs ds) =
   Eval (InsertDim (Eval (Fst xs)) (Eval (Snd xs)) ds)
 
--- | An Array Insert is Ok if the rank of the inserted array is one less than the insertee, and the shapes otherwise line up.
+-- | Is a slice ok constraint.
 --
 -- >>> :k! Eval (InsertOk 2 [2,3,4] [2,3])
 -- ...
@@ -974,8 +994,48 @@ type instance Eval (InsertDimUncurried xs ds) =
 data InsertOk :: Nat -> [Nat] -> [Nat] -> Exp Bool
 
 type instance Eval (InsertOk d s si) =
-  Eval (IsDim d s)
-      && Eval (TyEq si (Eval (DeleteDim d s)))
+  Eval (And
+    [ Eval (IsDim d s),
+      Eval (TyEq si (Eval (DeleteDim d s)))
+    ])
+
+-- | Is a slice ok?
+--
+-- >>> :k! Eval (SliceOk 1 1 2 [2,3,4])
+-- ...
+-- = True
+data SliceOk :: Nat -> Nat -> Nat -> [Nat] -> Exp Bool
+
+type instance Eval (SliceOk d off l s) =
+  Eval (And
+    [ Eval (IsFin off =<< GetDim d s),
+      Eval ((Fcf.<) l =<< GetDim d s),
+      Eval (IsDim d s)
+    ])
+
+-- | Combine elements of two lists pairwise.
+--
+data ZipWith3 :: (a -> b -> c -> Exp d) -> [a] -> [b] -> [c] -> Exp [d]
+
+type instance Eval (ZipWith3 _f '[] _bs _cs) = '[]
+type instance Eval (ZipWith3 _f _as '[] _cs) = '[]
+type instance Eval (ZipWith3 _f _as _bs '[]) = '[]
+type instance Eval (ZipWith3 f (a ': as) (b ': bs) (c ': cs)) =
+  Eval (f a b c) ': Eval (ZipWith3 f as bs cs)
+
+data SliceOk_ :: [Nat] -> Nat -> Nat -> Nat -> Exp Bool
+
+type instance Eval (SliceOk_ s d off l) = Eval (SliceOk d off l s)
+
+-- | Are slices ok?
+--
+-- >>> :k! Eval (SlicesOk '[1] '[1] '[2] [2,3,4])
+-- ...
+-- = True
+data SlicesOk :: [Nat] -> [Nat] -> [Nat] -> [Nat] -> Exp Bool
+
+type instance Eval (SlicesOk ds offs ls s) =
+  Eval (And =<< ZipWith3 (SliceOk_ s) ds offs ls)
 
 -- | concatenate two arrays at dimension i
 --

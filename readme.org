@@ -1507,7 +1507,7 @@ https://github.com/goldfirere/singletons/blob/master/README.md
 #+begin_src haskell-ng :results output
 example_inserta :: (Show a, FromInteger a) => SomeArray a -> String
 example_inserta (SomeArray (SNats :: SNats ns) a) = show (insert (SNat @0) 0 a (toScalar 0))
--- Could not deduce ‘HasShape
+-- Could not deduce ‘KnownNats
 -- (If (s Data.Type.Equality.== '[]) '[1] s)’
 --    arising from a use of ‘insert’
 #+end_src
@@ -1515,7 +1515,7 @@ example_inserta (SomeArray (SNats :: SNats ns) a) = show (insert (SNat @0) 0 a (
 segfaults as SNats is somehow SNat @'[]
 
 #+begin_src haskell-ng :results output
-example_take :: forall a s. (HasShape s, Show a) => Nat -> Nat -> Array s a -> String
+example_take :: forall a s. (KnownNats s, Show a) => Nat -> Nat -> Array s a -> String
 example_take d t a =
   withSomeSNat d
   (\(SNat :: SNat d) ->
@@ -1526,7 +1526,7 @@ example_take d t a =
 #+end_src
 
 #+begin_src haskell-ng :results output
-example_take' :: forall a s. (HasShape s, Show a) => Nat -> Nat -> Array s a -> String
+example_take' :: forall a s. (KnownNats s, Show a) => Nat -> Nat -> Array s a -> String
 example_take' d t a =
   withSomeSNat d
   (\(SNat :: SNat d') ->
@@ -1586,12 +1586,12 @@ instance (Arbitrary a) => Arbitrary (SomeVector' a) where
 
 
 #+begin_src haskell-ng :results output
-someTakeDim :: forall d t s. (HasShape s, KnownNat d, KnownNat t) => SNats (Eval (TakeDim d t s))
+someTakeDim :: forall d t s. (KnownNats s, KnownNat d, KnownNat t) => SNats (Eval (TakeDim d t s))
 someTakeDim = withSomeSNats (fromIntegral <$> takeDim (int (SNat :: SNat d)) (int (SNat :: SNat t)) (ints (SNats :: SNats s))) unsafeCoerce
 
-someTakeDim2 :: forall d t s. (HasShape s, KnownNat d, KnownNat t) => SNats (Eval (TakeDim d t s))
+someTakeDim2 :: forall d t s. (KnownNats s, KnownNat d, KnownNat t) => SNats (Eval (TakeDim d t s))
 someTakeDim2 = UnsafeSNats (fromIntegral <$> takeDim (int (SNat :: SNat d)) (int (SNat :: SNat t)) (ints (SNats :: SNats s)))
 
-someUnsafeGetIndex :: forall d s. (HasShape s, KnownNat d) => SNat (Eval (UnsafeGetIndex d s))
+someUnsafeGetIndex :: forall d s. (KnownNats s, KnownNat d) => SNat (Eval (UnsafeGetIndex d s))
 someUnsafeGetIndex = withSomeSNat (fromIntegral $ getDim (int (SNat :: SNat d)) (ints (SNats :: SNats s))) unsafeCoerce
 #+end_src
