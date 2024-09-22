@@ -50,7 +50,6 @@ module NumHask.Array.Dynamic
     -- * Creation
     empty,
     range,
-    iota,
     indices,
     ident,
     konst,
@@ -74,11 +73,11 @@ module NumHask.Array.Dynamic
     take,
     drop,
     select,
-    concatenate,
     insert,
     delete,
     append,
     prepend,
+    concatenate,
     couple,
     slice,
 
@@ -86,11 +85,11 @@ module NumHask.Array.Dynamic
     takes,
     drops,
     indexes,
+    slices,
     heads,
     lasts,
     tails,
     inits,
-    slices,
 
     -- ** Function application
     extracts,
@@ -167,6 +166,9 @@ module NumHask.Array.Dynamic
     snoc,
     unsnoc,
 
+    -- * Shape specializations
+    iota,
+
     -- * Maths
     uniform,
     invtri,
@@ -177,9 +179,9 @@ module NumHask.Array.Dynamic
 where
 
 import Control.Monad hiding (join)
-import Data.Bifunctor
 import Data.List qualified as List
 import Data.Vector qualified as V
+import NumHask.Array.Shape hiding (rank, size, asSingleton, concatenate, rerank, asScalar, reorder, squeeze, rotate)
 import NumHask.Array.Shape qualified as S
 import NumHask.Array.Sort
 import NumHask.Prelude as P hiding (cycle, diff, drop, empty, find, length, repeat, take, zip, zipWith)
@@ -277,10 +279,10 @@ instance (Show a) => Pretty (Array a) where
 -- * conversions
 
 instance (FromInteger a) => FromInteger (Array a) where
-  fromInteger x = UnsafeArray [] (V.singleton (fromInteger x))
+  fromInteger x = toScalar (fromInteger x)
 
 instance (FromRational a) => FromRational (Array a) where
-  fromRational x = UnsafeArray [] (V.singleton (fromRational x))
+  fromRational x = toScalar (fromRational x)
 
 -- | Conversion to and from a `V.Vector`
 --
@@ -309,7 +311,6 @@ instance FromVector [a] a where
 instance FromVector (Array a) a where
   asVector (UnsafeArray _ v) = v
   vectorAs v = UnsafeArray [V.length v] v
-
 
 -- | Conversion to and from an `Array`
 --
@@ -431,7 +432,7 @@ isNull = (zero ==) . size
 -- >>> index a [1,2,3]
 -- 23
 index :: Array a -> [Int] -> a
-index (UnsafeArray s v) i = V.unsafeIndex v (S.flatten s i)
+index (UnsafeArray s v) i = V.unsafeIndex v (flatten s i)
 
 infixl 9 !
 
@@ -449,7 +450,7 @@ infixl 9 !
 -- >>> a !? [2,3,1]
 -- Nothing
 (!?) :: Array a -> [Int] -> Maybe a
-(!?) a xs = bool Nothing (Just (a ! xs)) (xs `S.isFins` shape a)
+(!?) a xs = bool Nothing (Just (a ! xs)) (xs `isFins` shape a)
 
 -- | Tabulate an array supplying a shape and a tabulation function.
 --
@@ -457,7 +458,7 @@ infixl 9 !
 -- True
 tabulate :: [Int] -> ([Int] -> a) -> Array a
 tabulate ds f =
-  UnsafeArray ds (V.generate (V.product (asVector ds)) (f . S.shapen ds))
+  UnsafeArray ds (V.generate (V.product (asVector ds)) (f . shapen ds))
 
 -- | This is a more general backpermute function than contained in the canonical [Regular, Shape-polymorphic, Parallel Arrays in Haskell](https://benl.ouroborus.net/papers/2010-rarrays/repa-icfp2010.pdf) which is similar in spirit to:
 --
@@ -531,14 +532,7 @@ empty = array [0] []
 -- [[0,1,2],
 --  [3,4,5]]
 range :: [Int] -> Array Int
-range xs = tabulate xs (S.flatten xs)
-
--- | Vector specialisation of 'range'
---
--- >>> iota 5
--- UnsafeArray [5] [0,1,2,3,4]
-iota :: Int -> Array Int
-iota n = range [n]
+range xs = tabulate xs (flatten xs)
 
 -- | Indices of an array shape.
 --
@@ -555,8 +549,8 @@ indices ds = tabulate ds id
 -- [[1,0,0],
 --  [0,1,0],
 --  [0,0,1]]
-ident :: (Additive a, Multiplicative a) => [Int] -> Array a
-ident ds = tabulate ds (bool zero one . S.isDiag . vectorAs . asVector)
+ident :: (Ring a) => [Int] -> Array a
+ident ds = tabulate ds (bool zero one . isDiag)
 
 -- | Create an array composed of a single value.
 --
@@ -586,23 +580,19 @@ singleton a = UnsafeArray [1] (V.singleton a)
 diag ::
   Array a ->
   Array a
-diag a = backpermute minRank (replicate (rank a) . head) a
-  where
-    minRank [] = []
-    minRank xs = [S.minimum xs]
+diag a = backpermute minDim (replicate (rank a) . getDim 0) a
 
 -- | Expand the array to form a diagonal array.
 --
--- >>> pretty $ undiag 2 (range [3])
+-- >>> pretty $ undiag (range [3])
 -- [[0,0,0],
 --  [0,1,0],
 --  [0,0,2]]
 undiag ::
   (Additive a) =>
-  Int ->
   Array a ->
   Array a
-undiag r a = tabulate (replicate r (head (shape a))) (\xs -> bool zero (index a xs) (S.isDiag xs))
+undiag a = tabulate (shape a <> shape a) (\xs -> bool zero (index a xs) (isDiag xs))
 
 -- | Zip two arrays at an element level. Could also be called liftS2 or sometink like that.
 --
@@ -646,31 +636,30 @@ imap ::
   Array b
 imap f a = zipWith f (indices (shape a)) a
 
-
--- | Apply a function that takes a (dimension,parameter) list and applies a parameter list to the initial dimensions. ie
+-- | Apply a function that takes dimensions & parameters and applies a parameter list to the initial dimensions. ie
 --
--- > rowWise f xs = f (List.zip [0..] xs)
+-- > rowWise f xs = f [0..] xs
 --
 -- >>> rowWise indexes [1,0] a
 -- UnsafeArray [4] [12,13,14,15]
-rowWise :: ([(Int, x)] -> Array a -> Array a) -> [x] -> Array a -> Array a
-rowWise f xs a = f (List.zip [0 ..] xs) a
+rowWise :: ([Int] -> [x] -> Array a -> Array a) -> [x] -> Array a -> Array a
+rowWise f xs a = f [0..(S.rank xs - 1)] xs a
 
--- | Apply a function that takes a (dimension,parameter) list and applies a parameter list to the the last dimensions (in reverse). ie
+-- | Apply a function that takes dimensions & parameters and applies a parameter list to the the last dimensions (in reverse). ie
 --
--- > colWise f xs = f (List.zip (List.reverse [0 .. (rank a - 1)]) xs)
+-- > colWise f xs = f (List.reverse [0 .. (rank a - 1)]) xs
 --
 -- >>> colWise indexes [1,0] a
 -- UnsafeArray [2] [1,13]
-colWise :: ([(Int, x)] -> Array a -> Array a) -> [x] -> Array a -> Array a
-colWise f xs a = f (List.zip (List.reverse [0 .. (rank a - 1)]) xs) a
+colWise :: ([Int] -> [x] -> Array a -> Array a) -> [x] -> Array a -> Array a
+colWise f xs a = f (List.reverse [(rank a - (S.rank xs)) .. (rank a - 1)]) xs a
 
 -- | Apply a function that takes a dimension and parameter, and folds a (dimension,parameter) list over an array.
 --
--- >>> dimsWise take [(0,1),(2,2)] a
+-- >>> dimsWise take [0,2] [1,2] a
 -- UnsafeArray [1,3,2] [0,1,4,5,8,9]
-dimsWise :: (Int -> x -> Array a -> Array a) -> [(Int, x)] -> Array a -> Array a
-dimsWise f xs a = foldl' (\a' (d, x) -> f d x a') a xs
+dimsWise :: (Int -> x -> Array a -> Array a) -> [Int] -> [x] -> Array a -> Array a
+dimsWise f ds xs a = foldl' (\a' (d, x) -> f d x a') a (List.zip ds xs)
 
 -- | Take the top-most elements across the specified dimension. Negative values take the bottom-most. No index check is performed.
 --
@@ -695,9 +684,9 @@ take ::
   Int ->
   Array a ->
   Array a
-take d t a = backpermute dsNew (S.modifyDim d (\x -> x + bool 0 (d' + t) (t < 0))) a
+take d t a = backpermute dsNew (modifyDim d (\x -> x + bool 0 (d' + t) (t < 0))) a
   where
-    dsNew = S.modifyDim d (\i -> min i (abs t))
+    dsNew = modifyDim d (\i -> min i (abs t))
     d' = shape a !! d
 
 -- | Drop the top-most elements across the specified dimension. Negative values take the bottom-most.
@@ -721,9 +710,9 @@ drop ::
   Int ->
   Array a ->
   Array a
-drop d t a = backpermute dsNew (S.modifyDim d (\x -> x + bool t 0 (t < 0))) a
+drop d t a = backpermute dsNew (modifyDim d (\x -> x + bool t 0 (t < 0))) a
   where
-    dsNew = S.setDim d ((S.getDim d (shape a)) - abs t)
+    dsNew = setDim d ((getDim d (shape a)) - abs t)
 
 -- | Select an index along a dimension.
 --
@@ -736,7 +725,79 @@ select ::
   Int ->
   Array a ->
   Array a
-select d x a = backpermute (S.deleteDim d) (S.insertDim d x) a
+select d x a = backpermute (deleteDim d) (insertDim d x) a
+
+-- | Insert along a dimension at a position.
+--
+-- >>> pretty $ insert 2 0 a (konst [2,3] 0)
+-- [[[0,0,1,2,3],
+--   [0,4,5,6,7],
+--   [0,8,9,10,11]],
+--  [[0,12,13,14,15],
+--   [0,16,17,18,19],
+--   [0,20,21,22,23]]]
+-- >>> D.insert 0 0 (D.toScalar 1) (D.toScalar 2)
+-- UnsafeArray [2] [2,1]
+insert ::
+  Int ->
+  Int ->
+  Array a ->
+  Array a ->
+  Array a
+insert d i a b = tabulate (incAt d (shape (asSingleton a))) go
+  where
+    go s
+      | s !! d == i = index (asSingleton b) (deleteDim d s)
+      | s !! d < i = index (asSingleton a) s
+      | otherwise = index (asSingleton a) (decAt d s)
+
+-- | Delete along a dimension at a position.
+--
+-- >>> pretty $ delete 2 0 a
+-- [[[0,1,2],
+--   [4,5,6],
+--   [8,9,10]],
+--  [[12,13,14],
+--   [16,17,18],
+--   [20,21,22]]]
+delete ::
+  Int ->
+  Int ->
+  Array a ->
+  Array a
+delete d i a = backpermute (decAt d) (\s -> bool s (incAt d s) (s !! d < i)) (asSingleton a)
+
+-- | Insert along a dimension at the end.
+--
+-- >>> pretty $ append 2 a (konst [2,3] 0)
+-- [[[0,1,2,3,0],
+--   [4,5,6,7,0],
+--   [8,9,10,11,0]],
+--  [[12,13,14,15,0],
+--   [16,17,18,19,0],
+--   [20,21,22,23,0]]]
+append ::
+  Int ->
+  Array a ->
+  Array a ->
+  Array a
+append d a b = insert d (getDim d (shape a)) a b
+
+-- | Insert along a dimension at the beginning.
+--
+-- >>> pretty $ prepend 2 (konst [2,3] 0) a
+-- [[[0,0,1,2,3],
+--   [0,4,5,6,7],
+--   [0,8,9,10,11]],
+--  [[0,12,13,14,15],
+--   [0,16,17,18,19],
+--   [0,20,21,22,23]]]
+prepend ::
+  Int ->
+  Array a ->
+  Array a ->
+  Array a
+prepend d a b = insert d 0 b a
 
 -- | Concatenate along a dimension.
 --
@@ -758,88 +819,16 @@ concatenate d a0 a1 = tabulate (S.concatenate d (shape a0') (shape a1')) go
         (index a0' s)
         ( index
             a1
-            ( S.insertDim
+            ( insertDim
                 d
                 ((s !! d) - (ds0 !! d))
-                (S.deleteDim d s)
+                (deleteDim d s)
             )
         )
         ((s !! d) >= (ds0 !! d))
     ds0 = shape a0'
     a0' = asSingleton a0
     a1' = asSingleton a1
-
--- | Insert along a dimension at a position.
---
--- >>> pretty $ insert 2 0 a (konst [2,3] 0)
--- [[[0,0,1,2,3],
---   [0,4,5,6,7],
---   [0,8,9,10,11]],
---  [[0,12,13,14,15],
---   [0,16,17,18,19],
---   [0,20,21,22,23]]]
--- >>> D.insert 0 0 (D.toScalar 1) (D.toScalar 2)
--- UnsafeArray [2] [2,1]
-insert ::
-  Int ->
-  Int ->
-  Array a ->
-  Array a ->
-  Array a
-insert d i a b = tabulate (S.incAt d (shape (asSingleton a))) go
-  where
-    go s
-      | s !! d == i = index (asSingleton b) (S.deleteDim d s)
-      | s !! d < i = index (asSingleton a) s
-      | otherwise = index (asSingleton a) (S.decAt d s)
-
--- | Delete along a dimension at a position.
---
--- >>> pretty $ delete 2 0 a
--- [[[0,1,2],
---   [4,5,6],
---   [8,9,10]],
---  [[12,13,14],
---   [16,17,18],
---   [20,21,22]]]
-delete ::
-  Int ->
-  Int ->
-  Array a ->
-  Array a
-delete d i a = backpermute (S.decAt d) (\s -> bool s (S.incAt d s) (s !! d < i)) (asSingleton a)
-
--- | Insert along a dimension at the end.
---
--- >>> pretty $ append 2 a (konst [2,3] 0)
--- [[[0,1,2,3,0],
---   [4,5,6,7,0],
---   [8,9,10,11,0]],
---  [[12,13,14,15,0],
---   [16,17,18,19,0],
---   [20,21,22,23,0]]]
-append ::
-  Int ->
-  Array a ->
-  Array a ->
-  Array a
-append d a b = insert d (S.getDim d (shape a)) a b
-
--- | Insert along a dimension at the beginning.
---
--- >>> pretty $ prepend 2 (konst [2,3] 0) a
--- [[[0,0,1,2,3],
---   [0,4,5,6,7],
---   [0,8,9,10,11]],
---  [[0,12,13,14,15],
---   [0,16,17,18,19],
---   [0,20,21,22,23]]]
-prepend ::
-  Int ->
-  Array a ->
-  Array a ->
-  Array a
-prepend d a b = insert d 0 b a
 
 -- | Combine two arrays as rows of a new array.
 --
@@ -851,7 +840,7 @@ couple a a' = concatenate 0 (elongate 0 a) (elongate 0 a')
 
 -- | Slice along a dimension with the supplied (offset, length).
 --
--- >>> let s = slice 2 (1,2) a
+-- >>> let s = slice 2 1 2 a
 -- >>> pretty s
 -- [[[1,2],
 --   [5,6],
@@ -861,11 +850,11 @@ couple a a' = concatenate 0 (elongate 0 a) (elongate 0 a')
 --   [21,22]]]
 slice ::
   Int ->
-  (Int, Int) ->
+  Int ->
+  Int ->
   Array a ->
   Array a
-slice d (o, l) a = backpermute (S.setDim d l) (S.modifyDim d (+ o)) a
-
+slice d o l a = backpermute (setDim d l) (modifyDim d (+ o)) a
 
 -- * multi-dimension operators
 
@@ -873,64 +862,76 @@ slice d (o, l) a = backpermute (S.setDim d l) (S.modifyDim d (+ o)) a
 --
 -- > takes == dimsWise take
 --
--- >>> pretty $ takes [(0,1), (2,-3)] a
+-- >>> pretty $ takes [0,2] [1,-3] a
 -- [[[1,2,3],
 --   [5,6,7],
 --   [9,10,11]]]
 takes ::
-  [(Int, Int)] ->
+  [Int] ->
+  [Int] ->
   Array a ->
   Array a
-takes ts a = backpermute dsNew (List.zipWith (+) start) a
+takes ds xs a = backpermute dsNew (List.zipWith (+) start) a
   where
-    dsNew = S.setDims ds xsAbs
-    start = List.zipWith (\x s -> bool 0 (s + x) (x<0)) (S.setDims (fmap fst ts) (fmap snd ts) (replicate (rank a) 0)) (shape a)
-    ds = fmap fst ts
-    xs = fmap snd ts
+    dsNew = setDims ds xsAbs
+    start = List.zipWith (\x s -> bool 0 (s + x) (x<0)) (setDims ds xs (replicate (rank a) 0)) (shape a)
     xsAbs = fmap abs xs
 
 -- | Drops the top-most elements. Negative values drop the bottom-most.
 --
--- >>> pretty $ drops [(0,1), (1,2), (2,-3)] a
+-- >>> pretty $ drops [0,1,2] [1,2,-3] a
 -- [[[20]]]
 drops ::
-  [(Int, Int)] ->
+  [Int] ->
+  [Int] ->
   Array a ->
   Array a
-drops ts a = backpermute dsNew (List.zipWith (\d' s' -> bool (d' + s') s' (d' < 0)) xsNew) a
+drops ds xs a = backpermute dsNew (List.zipWith (\d' s' -> bool (d' + s') s' (d' < 0)) xsNew) a
   where
-    dsNew = S.modifyDims ds (fmap (flip (-)) xsAbs)
-    xsNew = S.setDims ds xs (replicate (rank a) 0)
-    ds = fmap fst ts
-    xs = fmap snd ts
+    dsNew = modifyDims ds (fmap (flip (-)) xsAbs)
+    xsNew = setDims ds xs (replicate (rank a) 0)
     xsAbs = fmap abs xs
 
--- | Select by (dimension,index) pairs.
+-- | Select by dimensions and indices.
 --
--- >>> let s = indexes [(0,1),(1,1)] a
+-- >>> let s = indexes [0,1] [1,1] a
 -- >>> pretty s
 -- [16,17,18,19]
 indexes ::
-  [(Int, Int)] ->
+  [Int] ->
+  [Int] ->
   Array a ->
   Array a
-indexes ps a = backpermute (S.deleteDims ds) (S.insertDims ps) a
-  where
-    ds = fmap fst ps
+indexes ds xs a = backpermute (deleteDims ds) (insertDims ds xs) a
+
+-- | Slices along dimensions by (offset,length).
+--
+-- >>> let s = slices [2,0] [1,1] [2,1] a
+-- >>> pretty s
+-- [[[13,14],
+--   [17,18],
+--   [21,22]]]
+slices ::
+  [Int] ->
+  [Int] ->
+  [Int] ->
+  Array a ->
+  Array a
+slices ds os ls a = dimsWise (\d (o,l) -> slice d o l) ds (List.zip os ls) a
 
 -- | Select the first element along the supplied dimensions
 --
 -- >>> pretty $ heads [0,2] a
 -- [0,4,8]
 heads :: [Int] -> Array a -> Array a
-heads ds a = indexes (fmap (,0) ds) a
+heads ds a = indexes ds (List.replicate (S.rank ds) 0) a
 
 -- | Select the last element along the supplied dimensions
 --
 -- >>> pretty $ lasts [0,2] a
 -- [15,19,23]
 lasts :: [Int] -> Array a -> Array a
-lasts ds a = indexes (List.zip ds lastds) a
+lasts ds a = indexes ds lastds a
   where
     lastds = (\i -> shape a !! i - 1) <$> ds
 
@@ -941,9 +942,10 @@ lasts ds a = indexes (List.zip ds lastds) a
 --   [17,18,19],
 --   [21,22,23]]]
 tails :: [Int] -> Array a -> Array a
-tails ds a = slices (List.zip ds xs) a
+tails ds a = slices ds os ls a
   where
-    xs = (1,) . (\i -> shape a !! i - 1) <$> ds
+    os = List.replicate (S.rank ls) 1
+    ls = (\i -> shape a !! i - 1) <$> ds
 
 -- | Select the init elements along the supplied dimensions
 --
@@ -952,22 +954,10 @@ tails ds a = slices (List.zip ds xs) a
 --   [4,5,6],
 --   [8,9,10]]]
 inits :: [Int] -> Array a -> Array a
-inits ds a = slices (List.zip ds initds) a
+inits ds a = slices ds os ls a
   where
-    initds = (0,) . (\i -> shape a !! i - 1) <$> ds
-
--- | Slices along dimensions by (offset,length).
---
--- >>> let s = slices [(2,(1,2)), (0,(1,1))] a
--- >>> pretty s
--- [[[13,14],
---   [17,18],
---   [21,22]]]
-slices ::
-  [(Int, (Int, Int))] ->
-  Array a ->
-  Array a
-slices ps a = dimsWise slice ps a
+    os = List.replicate (S.rank ls) 0
+    ls = (\i -> shape a !! i - 1) <$> ds
 
 -- | Extracts dimensions to an outer layer.
 --
@@ -980,9 +970,9 @@ extracts ::
   [Int] ->
   Array a ->
   Array (Array a)
-extracts ds a = tabulate (S.getDims ds (shape a)) go
+extracts ds a = tabulate (getDims ds (shape a)) go
   where
-    go s = indexes (List.zip ds s) a
+    go s = indexes ds s a
 
 -- | Extracts /except/ dimensions to an outer layer.
 --
@@ -993,7 +983,7 @@ extractsExcept ::
   [Int] ->
   Array a ->
   Array (Array a)
-extractsExcept ds a = extracts (S.exclude (rank a) ds) a
+extractsExcept ds a = extracts (exclude (rank a) ds) a
 
 -- | Reduce along specified dimensions, using the supplied fold.
 --
@@ -1020,9 +1010,9 @@ joins ::
   [Int] ->
   Array (Array a) ->
   Array a
-joins ds a = tabulate (S.insertDims (List.zip ds so) si) go
+joins ds a = tabulate (insertDims ds so si) go
   where
-    go s = index (index a (S.getDims ds s)) (S.deleteDims ds s)
+    go s = index (index a (getDims ds s)) (deleteDims ds s)
     so = shape a
     si = shape (index a (replicate (rank a) 0))
 
@@ -1139,7 +1129,7 @@ zipsSafe ds f a b =
 
 -- | Modify using the supplied function along (dimension, position) tuples.
 --
--- >>> pretty $ modifies (fmap (100+)) [(2,0)] a
+-- >>> pretty $ modifies (fmap (100+)) [2] [0] a
 -- [[[100,1,2,3],
 --   [104,5,6,7],
 --   [108,9,10,11]],
@@ -1148,23 +1138,21 @@ zipsSafe ds f a b =
 --   [120,21,22,23]]]
 modifies ::
   (Array a -> Array a) ->
-  [(Int, Int)] ->
+  [Int] ->
+  [Int] ->
   Array a ->
   Array a
-modifies f xs a = joins ds $ modify ps f (extracts ds a)
-  where
-    ds = fmap fst xs
-    ps = fmap snd xs
+modifies f ds ps a = joins ds $ modify ps f (extracts ds a)
 
--- | Apply a binary function between successive slices, across (dimension, lag) tuples
+-- | Apply a binary function between successive slices, across dimensions & lags.
 --
--- >>> pretty $ diffs [(1,1)] (zipWith (-)) a
+-- >>> pretty $ diffs [1] [1] (zipWith (-)) a
 -- [[[4,4,4,4],
 --   [4,4,4,4]],
 --  [[4,4,4,4],
 --   [4,4,4,4]]]
-diffs :: [(Int, Int)] -> (Array a -> Array a -> Array b) -> Array a -> Array b
-diffs ds f a = zips (fmap fst ds) f (drops ds a) (drops (fmap (second P.negate) ds) a)
+diffs :: [Int] -> [Int] -> (Array a -> Array a -> Array b) -> Array a -> Array b
+diffs ds xs f a = zips ds f (drops ds xs a) (drops ds (fmap P.negate xs) a)
 
 -- | Product two arrays using the supplied binary function.
 --
@@ -1305,7 +1293,7 @@ mult = dot sum (*)
 -- >>> D.shape $ D.windows [2,2] (D.range [4,3,2])
 -- [3,2,2,2,2]
 windows :: [Int] -> Array a -> Array a
-windows xs a = backpermute (S.expandWindows xs) (S.indexWindows (S.rank xs)) a
+windows xs a = backpermute (expandWindows xs) (indexWindows (S.rank xs)) a
 
 -- * search
 
@@ -1342,7 +1330,7 @@ findNoOverlap i a = r
 
     cl :: [Int] -> [[Int]]
     cl sh = List.filter (P.not . any (> 0) . List.init) $ List.filter (P.not . all (>= 0)) $ arrayAs $ tabulate ((\x -> 2 * x - 1) <$> sh) (\s -> List.zipWith (\x x0 -> x - x0 + 1) s sh)
-    go r' s = index f s && all (P.not . index r') (List.filter (\x -> S.isFins x (shape f)) $ fmap (List.zipWith (+) s) (cl (shape iexp)))
+    go r' s = index f s && all (P.not . index r') (List.filter (\x -> isFins x (shape f)) $ fmap (List.zipWith (+) s) (cl (shape iexp)))
     r = tabulate (shape f) (go r)
 
 -- | Find the indices of the starting location of one array in another.
@@ -1424,7 +1412,7 @@ pad ::
   [Int] ->
   Array a ->
   Array a
-pad d s' a = tabulate s' (\s -> bool d (index a' s) (s `S.isFins` shape a'))
+pad d s' a = tabulate s' (\s -> bool d (index a' s) (s `isFins` shape a'))
   where
     a' = rerank (S.rank s') a
 
@@ -1466,7 +1454,7 @@ reshape ::
   [Int] ->
   Array a ->
   Array a
-reshape s a = backpermute (const s) (S.shapen (shape a) . S.flatten s) a
+reshape s a = backpermute (const s) (shapen (shape a) . flatten s) a
 
 -- | Make an Array single dimensional
 --
@@ -1503,7 +1491,7 @@ cycle ::
   [Int] ->
   Array a ->
   Array a
-cycle s a = backpermute (const s) (S.shapen (shape a) . (`mod` (size a)) . S.flatten s) a
+cycle s a = backpermute (const s) (shapen (shape a) . (`mod` (size a)) . flatten s) a
 
 -- | Change rank by adding new dimensions at the front, if the new rank is greater, or combining dimensions (from left to right) into rows, if the new rank is lower.
 --
@@ -1531,7 +1519,7 @@ reorder ::
   [Int] ->
   Array a ->
   Array a
-reorder ds a = backpermute (`S.reorder` ds) (\s -> S.insertDims (List.zip ds s) []) a
+reorder ds a = backpermute (`S.reorder` ds) (\s -> insertDims ds s []) a
 
 -- | Remove single dimensions.
 --
@@ -1553,7 +1541,7 @@ elongate ::
   Int ->
   Array a ->
   Array a
-elongate d a = unsafeModifyShape (S.insertDim d 1) a
+elongate d a = unsafeModifyShape (insertDim d 1) a
 
 -- | Reverse indices eg transposes the element A/ijk/ to A/kji/.
 --
@@ -1579,7 +1567,7 @@ inflate ::
   Int ->
   Array a ->
   Array a
-inflate d n a = backpermute (S.insertDim d n) (S.deleteDim d) a
+inflate d n a = backpermute (insertDim d n) (deleteDim d) a
 
 -- | Intercalate an array along dimensions.
 --
@@ -1603,7 +1591,7 @@ intercalate ds i a = joins ds $ asArray (List.intersperse i (arrayAs (extracts d
 --   [16,0,17,0,18,0,19],
 --   [20,0,21,0,22,0,23]]]
 intersperse :: [Int] -> a -> Array a -> Array a
-intersperse ds i a = intercalate ds (konst (S.deleteDims ds (shape a)) i) a
+intersperse ds i a = intercalate ds (konst (deleteDims ds (shape a)) i) a
 
 -- | Concatenate and replace dimensions, creating a new dimension at the supplied postion.
 --
@@ -1619,8 +1607,8 @@ concats ::
   Array a
 concats ds n a = backpermute concatDims unconcatDims a
   where
-    concatDims s = S.insertDim n (S.size $ S.getDims ds s) (S.deleteDims ds s)
-    unconcatDims s = S.insertDims (List.zip ds (S.shapen (S.getDims ds (shape a)) (S.getDim n s))) (S.deleteDim n s)
+    concatDims s = insertDim n (S.size $ getDims ds s) (deleteDims ds s)
+    unconcatDims s = insertDims ds (shapen (getDims ds (shape a)) (getDim n s)) (deleteDim n s)
 
 -- | Rotate an array along a dimension.
 --
@@ -1636,7 +1624,7 @@ rotate ::
   Int ->
   Array a ->
   Array a
-rotate d r a = backpermute id (S.modifyDim d (\i -> (r + i) `mod` (shape a !! d))) a
+rotate d r a = backpermute id (modifyDim d (\i -> (r + i) `mod` (shape a !! d))) a
 
 -- | Reverses element order along specified dimensions.
 --
@@ -1651,7 +1639,7 @@ reverses ::
   [Int] ->
   Array a ->
   Array a
-reverses ds a = backpermute id (S.reverseIndex ds (shape a)) a
+reverses ds a = backpermute id (reverseIndex ds (shape a)) a
 
 -- * sorting
 
@@ -1695,31 +1683,25 @@ ordersBy ds c a = unsafeModifyVector (orderByV c) (extracts ds a)
 --
 -- >>> a = D.array [2,3] [0..5]
 -- >>> b = D.array [3] [0..2]
--- >>> pretty $ D.telecasts [(1,0)] (D.concatenate 0) a b
+-- >>> pretty $ D.telecasts [1] [0] (D.concatenate 0) a b
 -- [[0,1,2],
 --  [3,4,5],
 --  [0,1,2]]
-telecasts :: [(Int, Int)] -> (Array a -> Array b -> Array c) -> Array a -> Array b -> Array c
-telecasts ds f a b = zipWith f (extracts dsa a) (extracts dsb b) & joins dsa
-  where
-    dsb = fmap snd ds
-    dsa = fmap fst ds
+telecasts :: [Int] -> [Int] -> (Array a -> Array b -> Array c) -> Array a -> Array b -> Array c
+telecasts dsa dsb f a b = zipWith f (extracts dsa a) (extracts dsb b) & joins dsa
 
 -- | Apply a binary array function to two arrays with matching shapes across the supplied dimensions. Checks shape.
 --
 -- >>> a = D.array [2,3] [0..5]
 -- >>> b = D.array [1] [1]
--- >>> telecastsSafe [(0,0)] (zipWith (+)) a b
+-- >>> telecastsSafe [0] [0] (zipWith (+)) a b
 -- Left (NumHaskException {errorMessage = "MisMatched telecasting"})
-telecastsSafe :: [(Int, Int)] -> (Array a -> Array b -> Array c) -> Array a -> Array b -> Either NumHaskException (Array c)
-telecastsSafe ds f a b =
+telecastsSafe :: [Int] -> [Int] -> (Array a -> Array b -> Array c) -> Array a -> Array b -> Either NumHaskException (Array c)
+telecastsSafe dsa dsb f a b =
   bool
-    (Right $ telecasts ds f a b)
+    (Right $ telecasts dsa dsb f a b)
     (Left (NumHaskException "MisMatched telecasting"))
     (shape (extracts dsa a) /= (shape (extracts dsb b) :: [Int]))
-  where
-    dsa = fmap fst ds
-    dsb = fmap snd ds
 
 -- | Apply a binary array function to two arrays where the shape of the first array is a prefix of the second array. No checks on shape.
 --
@@ -1847,6 +1829,13 @@ infix 5 :>
 
 {-# COMPLETE (:>) :: Array #-}
 
+-- | Vector specialisation of 'range'
+--
+-- >>> iota 5
+-- UnsafeArray [5] [0,1,2,3,4]
+iota :: Int -> Array Int
+iota n = range [n]
+
 -- * Math
 
 -- | Generate an array of uniform random variates between a range.
@@ -1890,8 +1879,8 @@ inverse a = mult (invtri (transpose (chol a))) (invtri (chol a))
 invtri :: (ExpField a) => Array a -> Array a
 invtri a = i
   where
-    ti = undiag 2 (fmap recip (diag a))
-    tl = zipWith (-) a (undiag 2 (diag a))
+    ti = undiag (fmap recip (diag a))
+    tl = zipWith (-) a (undiag (diag a))
     l = fmap negate (dot sum (*) ti tl)
     pow xs x = foldr ($) (ident (shape xs)) (replicate x (mult xs))
     zero' = konst (shape a) zero

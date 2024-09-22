@@ -25,6 +25,7 @@ module NumHask.Array.Fixed
     unsafeModifyShape,
     unsafeModifyVector,
 
+    -- * Dependent type
     SomeArray (..),
     someArray,
 
@@ -171,18 +172,19 @@ module NumHask.Array.Fixed
     snoc,
     unsnoc,
 
-    -- * Maths
-    uniform,
-    invtri,
-    inverse,
-    chol,
-
     -- * Shape specializations
     Vector,
     vector,
     vector',
     iota,
     Matrix,
+
+    -- * Maths
+    uniform,
+    invtri,
+    inverse,
+    chol,
+
 )
 where
 
@@ -446,11 +448,11 @@ array v =
 
 -- | Unsafely modify an array shape.
 --
--- >>> pretty (unsafeModifyShape (array [0..5] :: Array [2,3] Int) :: Array [3,2] Int)
+-- >>> pretty (unsafeModifyShape @[3,2] (array @[2,3] @Int [0..5]))
 -- [[0,1],
 --  [2,3],
 --  [4,5]]
-unsafeModifyShape :: (KnownNats s, KnownNats s') => Array s a -> Array s' a
+unsafeModifyShape :: forall s' s a. (KnownNats s, KnownNats s') => Array s a -> Array s' a
 unsafeModifyShape a = unsafeArray (asVector a)
 
 -- | Unsafely modify an array vector.
@@ -691,14 +693,11 @@ diag ::
   forall s' a s.
   ( KnownNats s,
     KnownNats s',
-    s' ~ '[Eval (Minimum s)]
+    s' ~ Eval (MinDim s)
   ) =>
   Array s a ->
   Array s' a
-diag a = tabulate (go . fromFins)
-  where
-    go [] = index a (UnsafeFins [])
-    go (s' : _) = index a (UnsafeFins $ replicate (length a) s')
+diag a = unsafeBackpermute (replicate (rank a) . getDim 0) a
 
 -- | Expand the array to form a diagonal array
 --
@@ -715,10 +714,7 @@ undiag ::
   ) =>
   Array s a ->
   Array s' a
-undiag a = tabulate (go . fromFins)
-  where
-    go [] = index a (UnsafeFins [])
-    go xs@(x : xs') = bool zero (index a (UnsafeFins xs)) (all (x ==) xs')
+undiag a = tabulate ((\xs -> bool zero (index a (UnsafeFins $ pure $ getDim 0 (fromFins xs))) (isDiag (fromFins xs))))
 
 -- | Zip two arrays at an element level. Could also be called liftS2 or sometink like that.
 --
@@ -1163,7 +1159,7 @@ indexes ::
   Fins ts ->
   Array s a ->
   Array s' a
-indexes SNats xs a = unsafeBackpermute (S.insertDims (List.zip (valuesOf @ds) (fromFins xs))) a
+indexes SNats xs a = unsafeBackpermute (S.insertDims (valuesOf @ds) (fromFins xs)) a
 
 --- | Select by dimensions and indexes, supplying indexes as a type.
 ---
@@ -1205,7 +1201,7 @@ indexesExcept ::
   Fins ts ->
   Array s a ->
   Array s' a
-indexesExcept _ i a = unsafeBackpermute (\s -> insertDims (List.zip (valuesOf @ds) s) (fromFins i)) a
+indexesExcept _ i a = unsafeBackpermute (\s -> insertDims (valuesOf @ds) s (fromFins i)) a
 
 -- | Slice along dimensions with the supplied offsets and lengths.
 --
@@ -1344,7 +1340,6 @@ extractsExcept ::
     KnownNats ds,
     KnownNats si,
     KnownNats so,
-    KnownNats ds,
     so ~ Eval (DeleteDims ds st),
     si ~ Eval (GetDims ds st)
   ) =>
@@ -1472,7 +1467,7 @@ filters SNats p a = D.asArray $ V.filter p $ asVector (extracts (SNats @ds) a)
 
 -- | Zips two arrays with a function along specified dimensions.
 --
--- >>> pretty $ zips (S.SNats @[0,1]) (zipWith (,)) a (reverses [0] a)
+-- >>> pretty $ zips (S.SNats @[0,1]) (zipWith (,)) a (reverses (S.SNats @'[0]) a)
 -- [[[(0,12),(1,13),(2,14),(3,15)],
 --   [(4,16),(5,17),(6,18),(7,19)],
 --   [(8,20),(9,21),(10,22),(11,23)]],
@@ -1628,13 +1623,12 @@ expandr f a b = tabulate (\i -> f (index a (UnsafeFins $ List.drop r (fromFins i
 --  [32,77]]
 contract ::
   forall a b s ss s' ds.
-  ( KnownNat (Eval (Minimum (Eval (GetDims ds s)))),
-    KnownNats (Eval (GetDims ds s)),
+  ( KnownNats (Eval (GetDims ds s)),
     KnownNats s,
     KnownNats ss,
     KnownNats s',
     s' ~ Eval (DeleteDims ds s),
-    ss ~ '[Eval (Minimum (Eval (GetDims ds s)))]
+    ss ~ Eval (MinDim =<< GetDims ds s)
   ) =>
   Dims ds ->
   (Array ss a -> b) ->
@@ -2027,7 +2021,7 @@ reorder ::
   SNats dims ->
   Array s a ->
   Array s' a
-reorder SNats a = unsafeBackpermute (\s -> S.insertDims (List.zip (valuesOf @dims) s) []) a
+reorder SNats a = unsafeBackpermute (\s -> S.insertDims (valuesOf @dims) s []) a
 
 -- | Remove single dimensions.
 --
@@ -2140,13 +2134,13 @@ concats ::
   Array s' a
 concats SNats SNat a = unsafeBackpermute unconcatDims a
   where
-    unconcatDims s = S.insertDims (List.zip ds (S.shapen (S.getDims ds (shape a)) (S.getDim n s))) (S.deleteDim n s)
+    unconcatDims s = S.insertDims ds (S.shapen (S.getDims ds (shape a)) (S.getDim n s)) (S.deleteDim n s)
     n = valueOf @newd
     ds = valuesOf @ds
 
 -- | Reverses element order along specified dimensions.
 --
--- >>> pretty $ reverses [0,1] a
+-- >>> pretty $ reverses (S.SNats @[0,1]) a
 -- [[[20,21,22,23],
 --   [16,17,18,19],
 --   [12,13,14,15]],
@@ -2154,15 +2148,16 @@ concats SNats SNat a = unsafeBackpermute unconcatDims a
 --   [4,5,6,7],
 --   [0,1,2,3]]]
 reverses ::
+  forall ds s a.
   (KnownNats s) =>
-  [Int] ->
+  Dims ds ->
   Array s a ->
   Array s a
-reverses ds a = unsafeBackpermute (S.reverseIndex ds (shape a)) a
+reverses SNats a = unsafeBackpermute (S.reverseIndex (valuesOf @ds) (shape a)) a
 
 -- | Rotate an array along a dimension.
 --
--- >>> pretty $ rotate 1 2 a
+-- >>> pretty $ rotate (SNat @1) 2 a
 -- [[[8,9,10,11],
 --   [0,1,2,3],
 --   [4,5,6,7]],
@@ -2170,16 +2165,17 @@ reverses ds a = unsafeBackpermute (S.reverseIndex ds (shape a)) a
 --   [12,13,14,15],
 --   [16,17,18,19]]]
 rotate ::
+  forall d s a.
   (KnownNats s) =>
-  Int ->
+  Dim d ->
   Int ->
   Array s a ->
   Array s a
-rotate d r a = unsafeBackpermute (S.modifyDim d (\i -> (r + i) `mod` (shape a !! d))) a
+rotate SNat r a = unsafeBackpermute (S.modifyDim (valueOf @d) (\i -> (r + i) `mod` (shape a !! (valueOf @d)))) a
 
 -- | Rotate an array by/along offset,dimension tuples.
 --
--- >>> pretty $ rotates [(1, 2)] a
+-- >>> pretty $ rotates (S.SNats @'[1]) [2] a
 -- [[[8,9,10,11],
 --   [0,1,2,3],
 --   [4,5,6,7]],
@@ -2187,12 +2183,14 @@ rotate d r a = unsafeBackpermute (S.modifyDim d (\i -> (r + i) `mod` (shape a !!
 --   [12,13,14,15],
 --   [16,17,18,19]]]
 rotates ::
-  forall a s.
-  (KnownNats s) =>
-  [(Int, Int)] ->
+  forall a ds s.
+  (KnownNats s,
+   True ~ Eval (IsDims ds s)) =>
+  Dims ds ->
+  [Int] ->
   Array s a ->
   Array s a
-rotates rs a = unsafeBackpermute (rotateIndex rs (valuesOf @s)) a
+rotates SNats rs a = unsafeBackpermute (rotateIndex (valuesOf @ds) rs (valuesOf @s)) a
 
 -- | Sort an array along the supplied dimensions.
 --

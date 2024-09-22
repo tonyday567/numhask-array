@@ -101,6 +101,8 @@ module NumHask.Array.Shape
     IsDims,
     lastPos,
     LastPos,
+    minDim,
+    MinDim,
 
     -- * combinators
     EnumFromTo,
@@ -765,6 +767,28 @@ type instance Eval (LastPos d s) =
   If (0 == d && s == '[]) 0
   (Eval (GetDim d s) - 1)
 
+-- | Get the minimum dimension as a singleton dimension.
+-- >>> minDim [2,3,4]
+-- [2]
+-- >>> minDim []
+-- []
+minDim :: [Int] -> [Int]
+minDim [] = []
+minDim s = [minimum s]
+
+-- | Get the minimum dimension as a singleton dimension.
+-- >>> :k! Eval (MinDim [2,3,4])
+-- ...
+-- = '[2]
+-- >>> :k! Eval (MinDim '[])
+-- ...
+-- = '[]
+data MinDim :: [Nat] -> Exp [Nat]
+
+type instance Eval (MinDim s) =
+  If (s == '[]) '[]
+  '[Eval (Minimum s)]
+
 -- | Enumerate between two Nats
 --
 -- >>> :k! Eval (EnumFromTo 0 3)
@@ -1114,7 +1138,6 @@ type instance Eval (ConcatenateOk i s0 s1) =
   Eval (LiftM2 TyEq (DeleteDim i s0) (DeleteDim i s1)) &&
   Eval (LiftM2 TyEq (Rank =<< AsSingleton s0) (Rank =<< AsSingleton s1))
 
-
 -- * multiple dimension manipulations
 
 -- | Get dimensions of a shape.
@@ -1253,14 +1276,14 @@ type instance Eval (DeleteDims xs ds) =
 
 -- | insert a list of dimensions according to dimension,position tuple lists.  Note that the list of positions references the final shape and not the initial shape.
 --
--- >>> insertDims [(0,5)] []
+-- >>> insertDims [0] [5] []
 -- [5]
--- >>> insertDims [(1,3), (0,2)] [4]
+-- >>> insertDims [1,0] [3,2] [4]
 -- [2,3,4]
-insertDims :: [(Int,Int)] -> [Int] -> [Int]
-insertDims ps s = foldl' (flip (uncurry insertDim)) s ps'
+insertDims :: [Int] -> [Int] -> [Int] -> [Int]
+insertDims ds xs s = foldl' (flip (uncurry insertDim)) s ps
   where
-    ps' = zip (preInsertPositions $ fmap fst ps) (fmap snd ps)
+    ps = zip (preInsertPositions ds) xs
 
 -- | insert a list of dimensions according to dimension,position tuple lists.  Note that the list of positions references the final shape and not the initial shape.
 --
@@ -1338,10 +1361,10 @@ rotate r xs = drop r' xs <> take r' xs
 
 -- | rotate an index along specific dimensions.
 --
--- >>> rotateIndex [(0,1)] [2,3,4] [0,1,2]
+-- >>> rotateIndex [0] [1] [2,3,4] [0,1,2]
 -- [1,1,2]
-rotateIndex :: [(Int, Int)] -> [Int] -> [Int] -> [Int]
-rotateIndex rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs rs
+rotateIndex :: [Int] -> [Int] -> [Int] -> [Int] -> [Int]
+rotateIndex ds rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs (zip ds rs)
 
 -- | Test whether an index is a diagonal one.
 --
