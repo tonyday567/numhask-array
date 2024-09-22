@@ -50,9 +50,16 @@ module NumHask.Array.Shape
     rankOf,
     sizeOf,
     Fin (..),
+    fin,
     safeFin,
     Fins (..),
     toFins,
+
+    -- * Dimensions
+    Dim,
+    Dims,
+
+    -- operators
     rank,
     Rank,
     Range,
@@ -130,6 +137,7 @@ module NumHask.Array.Shape
     -- * multiple dimension
     getDims,
     GetDims,
+    GetLastPositions,
     modifyDims,
     insertDims,
     InsertDims,
@@ -173,7 +181,7 @@ import GHC.TypeLits (TypeError, ErrorMessage(..))
 import Text.Read
 import Data.Type.Ord hiding (Min, Max)
 import Unsafe.Coerce
-import Fcf hiding (type (&&), type (||), type (+), type (-), type (++))
+import Fcf hiding (type (>), type (<), type (&&), type (||), type (+), type (-), type (++))
 import Fcf qualified
 import Fcf.Class.Foldable
 import Fcf.Data.List
@@ -292,6 +300,18 @@ newtype Fin s
 instance Show (Fin n) where
   show (UnsafeFin x) = show x
 
+-- | Construct a Fin
+-- Errors on out-of-bounds
+--
+-- >>> fin @2 1
+-- 1
+--
+-- >>> fin @2 2
+-- *** Exception: value outside bounds
+-- ...
+fin :: forall n. (KnownNat n) => Int -> Fin n
+fin x = fromMaybe (error "value outside bounds") (safeFin x)
+
 -- | Construct a Fin safely.
 --
 -- >>> safeFin 1 :: Maybe (Fin 2)
@@ -323,6 +343,12 @@ instance Show (Fins n) where
 toFins :: forall s. (KnownNats s) => [Int] -> Maybe (Fins s)
 toFins xs = bool Nothing (Just (UnsafeFins xs)) (isFins xs (valuesOf @s))
 
+-- | An SNat (a type-level Nat) that represents an index into an SNats (a type-level [Nat]). The index is a dimension of the shape.
+type Dim = SNat
+
+-- | An SNats (a type-level [Nat]) that represents indexes into an SNats (a type-level [Nat]). The indexes are dimensions of the shape.
+type Dims = SNats
+
 -- | Number of dimensions
 --
 -- >>> rank @Int [2,3,4]
@@ -336,7 +362,7 @@ rank = length
 -- >>> :k! Eval (Rank [2,3,4])
 -- ...
 -- = 3
-data Rank :: t a -> Exp Natural
+data Rank :: [a] -> Exp Natural
 
 type instance Eval (Rank xs) =
   Eval (Length xs)
@@ -382,9 +408,9 @@ rerank r xs =
 data Rerank :: Nat -> [Nat] -> Exp [Nat]
 
 type instance Eval (Rerank r xs) =
-  If (Eval ((Fcf.>) r (Eval (Rank xs))))
-  (Eval (Eval (Replicate (Eval ((Fcf.-) r (Eval (Rank xs)))) 1) Fcf.++ xs))
-  (Eval ((Fcf.++) ('[Eval (Size (Eval (Take ((Eval (Rank xs)) - r + 1) xs)))])
+  If (r >? (Eval (Rank xs)))
+  (Eval (Eval (Replicate (r - (Eval (Rank xs))) 1) ++ xs))
+  (Eval (('[Eval (Size (Eval (Take ((Eval (Rank xs)) - r + 1) xs)))]) ++
     (Eval (Drop (Eval (Rank xs) + 1 - r) xs))))
 
 -- | Enumerate the dimensions of a shape.
@@ -620,7 +646,7 @@ type instance Eval (Minimum (x ': xs)) =
 -- = 0
 data Min :: a -> a -> Exp a
 
-type instance Eval (Min a b) = If (Eval (a Fcf.< b)) a b
+type instance Eval (Min a b) = If (a <? b) a b
 
 -- | Maximum of two type values.
 --
@@ -629,7 +655,7 @@ type instance Eval (Min a b) = If (Eval (a Fcf.< b)) a b
 -- = 1
 data Max :: a -> a -> Exp a
 
-type instance Eval (Max a b) = If (Eval (a Fcf.> b)) a b
+type instance Eval (Max a b) = If (a >? b) a b
 
 -- | Check if i is a valid Fin (aka in-bounds index of a dimension)
 --
@@ -651,7 +677,7 @@ isFin i d = (zero <= i && i + one <= d)
 data IsFin :: Nat -> Nat -> Exp Bool
 
 type instance Eval (IsFin x d) =
-  Eval ((Fcf.<) x d)
+  x <? d
 
 -- | Check if i is a valid Fins (aka in-bounds index of a Shape)
 --
@@ -750,7 +776,7 @@ type instance Eval (EnumFromTo a b) = Eval (Unfoldr (EnumFromToHelper b) a)
 
 data EnumFromToHelper :: Nat -> Nat -> Exp (Maybe (a, Nat))
 type instance Eval (EnumFromToHelper b a) =
-  If (Eval (a Fcf.> b))
+  If (a >? b)
     'Nothing
     ('Just '(a, a+1))
 
@@ -1010,6 +1036,7 @@ type instance Eval (SliceOk d off l s) =
   Eval (And
     [ Eval (IsFin off =<< GetDim d s),
       Eval ((Fcf.<) l =<< GetDim d s),
+      Eval ((Fcf.<) (off + l) (Eval (GetDim d s) + 1)),
       Eval (IsDim d s)
     ])
 
@@ -1112,6 +1139,19 @@ data GetDims :: [Nat] -> [Nat] -> Exp [Nat]
 
 type instance Eval (GetDims xs ds) =
   Eval (Map (Flip GetDim ds) xs)
+
+-- | Get the index of the last position in the selected dimensions of a shape. Errors on a zero-dimension.
+--
+-- >>> :k! Eval (GetLastPositions [2,0] [2,3,4])
+-- ...
+-- = [3, 1]
+-- >>> :k! Eval (GetLastPositions '[0] '[0])
+-- ...
+-- = '[0 GHC.TypeNats.- 1]
+data GetLastPositions :: [Nat] -> [Nat] -> Exp [Nat]
+
+type instance Eval (GetLastPositions ds s) =
+    Eval (Map (Flip (Fcf.-) 1) (Eval (GetDims ds s)))
 
 -- | modify dimensions of a shape with (separate) functions.
 --
