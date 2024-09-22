@@ -55,10 +55,6 @@ module NumHask.Array.Shape
     Fins (..),
     toFins,
 
-    -- * Dimensions
-    Dim,
-    Dims,
-
     -- operators
     rank,
     Rank,
@@ -344,12 +340,6 @@ instance Show (Fins n) where
 -- Nothing
 toFins :: forall s. (KnownNats s) => [Int] -> Maybe (Fins s)
 toFins xs = bool Nothing (Just (UnsafeFins xs)) (isFins xs (valuesOf @s))
-
--- | An SNat (a type-level Nat) that represents an index into an SNats (a type-level [Nat]). The index is a dimension of the shape.
-type Dim = SNat
-
--- | An SNats (a type-level [Nat]) that represents indexes into an SNats (a type-level [Nat]). The indexes are dimensions of the shape.
-type Dims = SNats
 
 -- | Number of dimensions
 --

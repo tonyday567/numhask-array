@@ -25,7 +25,11 @@ module NumHask.Array.Fixed
     unsafeModifyShape,
     unsafeModifyVector,
 
-    -- * Dependent type
+    -- * Dimensions
+    Dim,
+    Dims,
+
+   -- * Dependent type
     SomeArray (..),
     someArray,
 
@@ -463,6 +467,13 @@ unsafeModifyShape a = unsafeArray (asVector a)
 --  [4,5,6]]
 unsafeModifyVector :: (KnownNats s) => (FromVector u a) => (FromVector v b) => (u -> v) -> Array s a -> Array s b
 unsafeModifyVector f a = unsafeArray (asVector (f (vectorAs (asVector a))))
+
+-- | Representation of an index into a shape (a type-level [Nat]). The index is a dimension of the shape.
+type Dim = SNat
+
+-- | Representation of indexes into a shape (a type-level [Nat]). The indexes are dimensions of the shape.
+type Dims = SNats
+
 
 -- | A fixed Array with a hidden shape.
 --
