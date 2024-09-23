@@ -103,7 +103,6 @@ module NumHask.Array.Fixed
     dropBs,
     indexes,
     indexesT,
-    indexesExcept,
     slices,
     heads,
     lasts,
@@ -112,7 +111,6 @@ module NumHask.Array.Fixed
 
     -- * Function application
     extracts,
-    extractsExcept,
     reduces,
     joins,
     join,
@@ -198,6 +196,7 @@ import Data.Functor.Rep
 import Data.Vector qualified as V
 import Fcf hiding (type (&&), type (+), type (-), type (++))
 import Fcf.Data.List
+import qualified Fcf
 import GHC.TypeNats
 import NumHask.Array.Dynamic qualified as D
 import NumHask.Array.Shape hiding (concatenate, rank, size, asScalar, asSingleton, squeeze, rotate, reorder, rerank)
@@ -853,7 +852,7 @@ drop ::
   SNat t ->
   Array s a ->
   Array s' a
-drop SNat SNat a = unsafeBackpermute (S.modifyDim (valueOf @d) (\x -> x + bool (valueOf @t) 0 ((valueOf @t) < 0))) a
+drop SNat SNat a = unsafeBackpermute (S.modifyDim (valueOf @d) (\x -> x + valueOf @t)) a
 
 -- | Drop the bottom-most elements across the specified dimension.
 --
@@ -922,11 +921,11 @@ insert ::
   Array s' a
 insert SNat i a b = tabulate go
   where
-    go xs
-      | getDim d xs' == fromFin i = index b (UnsafeFins (S.deleteDim d xs'))
-      | getDim d xs' < fromFin i = index a (UnsafeFins xs')
-      | otherwise = index a (UnsafeFins (S.decAt d xs'))
-      where xs' = fromFins xs
+    go s
+      | getDim d s' == fromFin i = index b (UnsafeFins (deleteDim d s'))
+      | getDim d s' < fromFin i = index a (UnsafeFins s')
+      | otherwise = index a (UnsafeFins (decAt d s'))
+      where s' = fromFins s
     d = valueOf @d
 
 -- | Delete along a dimension at a position.
@@ -948,7 +947,7 @@ delete ::
   Fin p ->
   Array s a ->
   Array s' a
-delete SNat p a = unsafeBackpermute (\s -> bool (S.incAt d s) s (getDim d s < fromFin p)) a
+delete SNat p a = unsafeBackpermute (\s -> bool (incAt d s) s (getDim d s < fromFin p)) a
   where
     d = valueOf @d
 
@@ -1160,14 +1159,14 @@ dropBs _ _ a = unsafeBackpermute id a
 -- >>> pretty $ indexes (S.SNats @[0,1]) (S.UnsafeFins [1,1]) a
 -- [16,17,18,19]
 indexes ::
-  forall ds s s' ts a.
+  forall ds s s' xs a.
   ( KnownNats s,
     KnownNats s',
     s' ~ Eval (DeleteDims ds s),
-    ts ~ Eval (GetDims ds s)
+    xs ~ Eval (GetDims ds s)
   ) =>
   Dims ds ->
-  Fins ts ->
+  Fins xs ->
   Array s a ->
   Array s' a
 indexes SNats xs a = unsafeBackpermute (S.insertDims (valuesOf @ds) (fromFins xs)) a
@@ -1190,29 +1189,6 @@ indexesT ::
   Array s a ->
   Array s' a
 indexesT ds _ a = indexes ds (UnsafeFins $ valuesOf @xs) a
-
--- | Select an index /except/ along specified dimensions.
---
--- >>> let s = indexesExcept (S.SNats @'[2]) (S.UnsafeFins [1,1]) a
--- >>> :t s
--- s :: Array '[4] Int
---
--- >>> pretty $ s
--- [16,17,18,19]
-indexesExcept ::
-  forall ds ts s s' a.
-  ( KnownNats s,
-    KnownNats ds,
-    KnownNats s',
-    KnownNats ds,
-    s' ~ Eval (GetDims ds s),
-    ts ~ Eval (DeleteDims ds s)
-  ) =>
-  Dims ds ->
-  Fins ts ->
-  Array s a ->
-  Array s' a
-indexesExcept _ i a = unsafeBackpermute (\s -> insertDims (valuesOf @ds) s (fromFins i)) a
 
 -- | Slice along dimensions with the supplied offsets and lengths.
 --
@@ -1339,25 +1315,6 @@ extracts ::
   Array st a ->
   Array so (Array si a)
 extracts ds a = tabulate (\s -> indexes ds s a)
-
--- | Extracts /except/ dimensions to an outer layer.
---
--- >>> let e = extractsExcept (S.SNats @[1,2]) a
--- >>> pretty $ shape <$> e
--- [[3,4],[3,4]]
-extractsExcept ::
-  forall ds st si so a.
-  ( KnownNats st,
-    KnownNats ds,
-    KnownNats si,
-    KnownNats so,
-    so ~ Eval (DeleteDims ds st),
-    si ~ Eval (GetDims ds st)
-  ) =>
-  Dims ds ->
-  Array st a ->
-  Array so (Array si a)
-extractsExcept ds a = tabulate (\s -> indexesExcept ds s a)
 
 -- | Reduce along specified dimensions, using the supplied fold.
 --
@@ -1628,31 +1585,34 @@ expandr f a b = tabulate (\i -> f (index a (UnsafeFins $ List.drop r (fromFins i
 --
 -- FIXME: relook at expand/contract structure
 --
--- > let b = array [1..6] :: Array [2,3] Int
--- > pretty $ contract (SNats @[1,2]) sum (expand (*) b (transpose b))
+-- >>> let b = array [1..6] :: Array [2,3] Int
+-- >>> pretty $ contract (S.SNats @[1,2]) sum (expand (*) b (transpose b))
 -- [[14,32],
 --  [32,77]]
 contract ::
-  forall a b s ss s' ds.
-  ( KnownNats (Eval (GetDims ds s)),
+  forall a b s ss se s' ds ds'.
+  ( KnownNats se,
+    se ~ Eval (DeleteDims ds' s),
+    KnownNats ds',
     KnownNats s,
     KnownNats ss,
     KnownNats s',
-    s' ~ Eval (DeleteDims ds s),
-    ss ~ Eval (MinDim =<< GetDims ds s)
+    s' ~ Eval (GetDims ds' s),
+    ss ~ Eval (MinDim se),
+    ds' ~ Eval (ExceptDims ds s)
   ) =>
   Dims ds ->
   (Array ss a -> b) ->
   Array s a ->
   Array s' b
-contract SNats f a = f . diag <$> extractsExcept (SNats @ds) a
+contract SNats f a = f . diag <$> extracts (SNats @ds') a
 
 -- | A generalisation of a dot operation, which is a multiplicative expansion of two arrays and sum contraction along the middle two dimensions.
 --
 -- matrix multiplication
 --
--- > let b = array [1..6] :: Array [2,3] Int
--- > pretty $ dot sum (*) b (transpose b)
+-- >>> let b = array [1..6] :: Array [2,3] Int
+-- >>> pretty $ dot sum (*) b (transpose b)
 -- [[14,32],
 --  [32,77]]
 --
@@ -1665,41 +1625,43 @@ contract SNats f a = f . diag <$> extractsExcept (SNats @ds) a
 -- matrix-vector multiplication
 -- Note that an Array with shape [3] is neither a row vector nor column vector.
 --
--- > pretty $ dot sum (*) v b
+-- >>> pretty $ dot sum (*) v b
 -- [9,12,15]
 --
--- > pretty $ dot sum (*) b v
+-- >>> pretty $ dot sum (*) b v
 -- [14,32]
 dot ::
-  forall a b c d sa sb s' ss se x.
+  forall a b c d ds ds' s sa sb s' ss se.
   ( KnownNats sa,
     KnownNats sb,
-    KnownNats (Eval ((++) sa sb)),
-    se ~ Eval (GetDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (Eval ((++) sa sb))),
     KnownNats se,
-    KnownNat (Eval (Minimum se)),
     KnownNat (Eval (Rank sa) - 1),
     KnownNat (Eval (Rank sa)),
-    ss ~ '[Eval (Minimum se)],
     KnownNats ss,
-    s' ~ Eval (DeleteDims x (Eval ((++) sa sb))),
     KnownNats s',
-    KnownNats x,
-    x ~ '[Eval (Rank sa) - 1, Eval (Rank sa)]
+    KnownNats ds,
+    KnownNats ds',
+    KnownNats s,
+    s ~ Eval ((++) sa sb),
+    ds ~ '[Eval ((Fcf.-) (Eval (Rank sa))  1), Eval (Rank sa)],
+    ds' ~ Eval (ExceptDims ds s),
+    s' ~ Eval (GetDims ds' s),
+    se ~ Eval (DeleteDims ds' s),
+    ss ~ Eval (MinDim se)
   ) =>
   (Array ss c -> d) ->
   (a -> b -> c) ->
   Array sa a ->
   Array sb b ->
   Array s' d
-dot f g a b = contract (SNats :: SNats x) f (expand g a b)
+dot f g a b = contract (SNats :: SNats ds) f (expand g a b)
 
 -- | Array multiplication.
 --
 -- matrix multiplication
 --
--- > let b = array [1..6] :: Array [2,3] Int
--- > pretty $ mult b (transpose b)
+-- >>> let b = array [1..6] :: Array [2,3] Int
+-- >>> pretty $ mult b (transpose b)
 -- [[14,32],
 --  [32,77]]
 --
@@ -1711,29 +1673,31 @@ dot f g a b = contract (SNats :: SNats x) f (expand g a b)
 --
 -- matrix-vector multiplication
 --
--- > pretty $ mult v b
+-- >>> pretty $ mult v b
 -- [9,12,15]
 --
--- > pretty $ mult b v
+-- >>> pretty $ mult b v
 -- [14,32]
 mult ::
-  forall a sa sb s' ss se x.
+  forall a sa sb s s' ss se ds ds'.
   ( Additive a,
     Multiplicative a,
     KnownNats sa,
     KnownNats sb,
-    KnownNats (Eval ((++) sa sb)),
-    se ~ Eval (GetDims '[Eval (Rank sa) - 1, Eval (Rank sa)] (Eval ((++) sa sb))),
     KnownNats se,
-    KnownNat (Eval (Minimum se)),
     KnownNat (Eval (Rank sa) - 1),
     KnownNat (Eval (Rank sa)),
-    ss ~ '[Eval (Minimum se)],
     KnownNats ss,
-    s' ~ Eval (DeleteDims x (Eval ((++) sa sb))),
     KnownNats s',
-    KnownNats x,
-    x ~ '[Eval (Rank sa) - 1, Eval (Rank sa)]
+    KnownNats ds,
+    KnownNats ds',
+    KnownNats s,
+    s ~ Eval ((++) sa sb),
+    ds ~ '[Eval (Rank sa) - 1, Eval (Rank sa)],
+    ds' ~ Eval (ExceptDims ds s),
+    s' ~ Eval (GetDims ds' s),
+    se ~ Eval (DeleteDims ds' s),
+    ss ~ Eval (MinDim se)
   ) =>
   Array sa a ->
   Array sb a ->
@@ -2565,13 +2529,14 @@ uniform g r = do
 
 -- | Inverse of a square matrix.
 --
+-- > D.mult (D.inverse a) a == a
+--
 -- >>> e = array @[3,3] @Double [4,12,-16,12,37,-43,-16,-43,98]
 -- >>> pretty (inverse e)
 -- [[49.36111111111111,-13.555555555555554,2.1111111111111107],
 --  [-13.555555555555554,3.7777777777777772,-0.5555555555555555],
 --  [2.1111111111111107,-0.5555555555555555,0.1111111111111111]]
 --
--- > D.mult (D.inverse a) a == a
 inverse :: (Eq a, ExpField a, KnownNat m) => Matrix m m a -> Matrix m m a
 inverse a = mult (invtri (transpose (chol a))) (invtri (chol a))
 

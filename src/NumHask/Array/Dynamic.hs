@@ -694,10 +694,9 @@ take ::
   Int ->
   Array a ->
   Array a
-take d t a = backpermute dsNew (modifyDim d (\x -> x + bool 0 (d' + t) (t < 0))) a
+take d t a = backpermute dsNew (modifyDim d (\x -> x + bool 0 (getDim d (shape a) + t) (t < 0))) a
   where
-    dsNew = modifyDim d (\i -> min i (abs t))
-    d' = shape a !! d
+    dsNew = takeDim d (abs t)
 
 -- | Drop the top-most elements across the specified dimension. Negative values take the bottom-most.
 --
@@ -722,7 +721,7 @@ drop ::
   Array a
 drop d t a = backpermute dsNew (modifyDim d (\x -> x + bool t 0 (t < 0))) a
   where
-    dsNew = setDim d ((getDim d (shape a)) - abs t)
+    dsNew = dropDim d (abs t)
 
 -- | Select an index along a dimension.
 --
@@ -754,12 +753,12 @@ insert ::
   Array a ->
   Array a ->
   Array a
-insert d i a b = tabulate (incAt d (shape (asSingleton a))) go
+insert d i a b = tabulate (incAt d (shape a)) go
   where
     go s
-      | s !! d == i = index (asSingleton b) (deleteDim d s)
-      | s !! d < i = index (asSingleton a) s
-      | otherwise = index (asSingleton a) (decAt d s)
+      | s !! d == i = index b (deleteDim d s)
+      | s !! d < i = index a s
+      | otherwise = index a (decAt d s)
 
 -- | Delete along a dimension at a position.
 --
@@ -775,7 +774,7 @@ delete ::
   Int ->
   Array a ->
   Array a
-delete d i a = backpermute (decAt d) (\s -> bool s (incAt d s) (s !! d < i)) (asSingleton a)
+delete d i a = backpermute (decAt d) (\s -> bool s (incAt d s) (getDim d s < i)) a
 
 -- | Insert along a dimension at the end.
 --
@@ -822,23 +821,21 @@ concatenate ::
   Array a ->
   Array a ->
   Array a
-concatenate d a0 a1 = tabulate (S.concatenate d (shape a0') (shape a1')) go
+concatenate d a0 a1 = tabulate (S.concatenate d (shape a0) (shape a1)) go
   where
     go s =
       bool
-        (index a0' s)
+        (index a0 s)
         ( index
             a1
             ( insertDim
                 d
-                ((s !! d) - (ds0 !! d))
+                (getDim d s - getDim d ds0)
                 (deleteDim d s)
             )
         )
-        ((s !! d) >= (ds0 !! d))
-    ds0 = shape a0'
-    a0' = asSingleton a0
-    a1' = asSingleton a1
+        (getDim d s >= getDim d ds0)
+    ds0 = shape a0
 
 -- | Combine two arrays as rows of a new array.
 --
@@ -898,7 +895,7 @@ drops ::
   Array a
 drops ds xs a = backpermute dsNew (List.zipWith (\d' s' -> bool (d' + s') s' (d' < 0)) xsNew) a
   where
-    dsNew = modifyDims ds (fmap (flip (-)) xsAbs)
+    dsNew = dropDims ds xsAbs
     xsNew = setDims ds xs (replicate (rank a) 0)
     xsAbs = fmap abs xs
 
@@ -993,7 +990,7 @@ extractsExcept ::
   Dims ->
   Array a ->
   Array (Array a)
-extractsExcept ds a = extracts (exclude (rank a) ds) a
+extractsExcept ds a = extracts (exceptDims (shape a) ds) a
 
 -- | Reduce along specified dimensions, using the supplied fold.
 --
@@ -1232,7 +1229,7 @@ contract ::
   Dims ->
   Array a ->
   Array b
-contract f xs a = f . diag <$> extractsExcept xs a
+contract f xs a = f . diag <$> extracts (exceptDims xs (shape a)) a
 
 -- | A generalisation of a dot operation, which is a multiplicative expansion of two arrays and sum contraction along the middle two dimensions.
 --

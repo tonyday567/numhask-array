@@ -72,8 +72,8 @@ module NumHask.Array.Shape
     asScalar,
     AsScalar,
     IsSubset,
-    exclude,
-    Exclude,
+    exceptDims,
+    ExceptDims,
     reorder,
     Reorder,
     ReorderOk,
@@ -543,22 +543,22 @@ data IsSubset :: [Nat] -> [Nat] -> Exp Bool
 type instance Eval (IsSubset xs ys) =
   Eval (LTE ys =<< (Rerank (Eval (Rank ys)) xs))
 
--- | Turn a list of included positions for a given rank into a list of excluded positions
+-- | Compute dimensions for a shape other than the supplied dimensions.
 --
--- >>> exclude 3 [1,2]
+-- >>> exceptDims [1,2] [2,3,4]
 -- [0]
-exclude :: Int -> [Int] -> [Int]
-exclude r xs = deleteDims xs [0 .. (r - 1)]
+exceptDims :: [Int] -> [Int] -> [Int]
+exceptDims ds s = deleteDims ds [0 .. ((rank s) - 1)]
 
--- | Turn a list of included positions for a given rank into a list of excluded positions
+-- | Compute dimensions for a shape other than the supplied dimensions.
 --
--- > :k! Eval (Exclude 3 [1,2])
+-- > :k! Eval (ExceptDims [1,2] [2,3,4])
 -- ...
 -- = '[0]
-data Exclude :: Nat -> [Nat] -> Exp [Nat]
+data ExceptDims :: [Nat] -> [Nat] -> Exp [Nat]
 
-type instance Eval (Exclude r xs) =
-  Eval (DeleteDims (Eval (EnumFromTo 0 (r - 1))) xs)
+type instance Eval (ExceptDims ds s) =
+  Eval (DeleteDims ds =<< EnumFromTo 0 (Eval ((Fcf.-) (Eval (Rank s)) 1)))
 
 -- | Reorder the dimensions of shape according to a list of positions.
 --
