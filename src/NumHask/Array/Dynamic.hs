@@ -84,6 +84,7 @@ module NumHask.Array.Dynamic
     concatenate,
     couple,
     slice,
+    rotate,
 
     -- ** Selection
     takes,
@@ -97,7 +98,6 @@ module NumHask.Array.Dynamic
 
     -- ** Function application
     extracts,
-    extractsExcept,
     reduces,
     joins,
     joinsSafe,
@@ -146,8 +146,8 @@ module NumHask.Array.Dynamic
     intercalate,
     intersperse,
     concats,
-    rotate,
     reverses,
+    rotates,
 
     -- * Sorting
     sorts,
@@ -185,7 +185,7 @@ where
 import Control.Monad hiding (join)
 import Data.List qualified as List
 import Data.Vector qualified as V
-import NumHask.Array.Shape hiding (rank, size, asSingleton, concatenate, rerank, asScalar, reorder, squeeze, rotate)
+import NumHask.Array.Shape hiding (rank, size, asSingleton, concatenate, rerank, asScalar, reorder, squeeze, rotate, range)
 import NumHask.Array.Shape qualified as S
 import NumHask.Array.Sort
 import NumHask.Prelude as P hiding (cycle, diff, drop, empty, find, length, repeat, take, zip, zipWith)
@@ -863,6 +863,22 @@ slice ::
   Array a
 slice d o l a = backpermute (setDim d l) (modifyDim d (+ o)) a
 
+-- | Rotate an array along a dimension.
+--
+-- >>> pretty $ rotate 1 2 a
+-- [[[8,9,10,11],
+--   [0,1,2,3],
+--   [4,5,6,7]],
+--  [[20,21,22,23],
+--   [12,13,14,15],
+--   [16,17,18,19]]]
+rotate ::
+  Dim ->
+  Int ->
+  Array a ->
+  Array a
+rotate d r a = backpermute id (rotateIndex d r (shape a)) a
+
 -- * multi-dimension operators
 
 -- | Takes the top-most elements across the supplied dimension,n tuples. Negative values take the bottom-most.
@@ -940,7 +956,7 @@ heads ds a = indexes ds (List.replicate (S.rank ds) 0) a
 lasts :: Dims -> Array a -> Array a
 lasts ds a = indexes ds lastds a
   where
-    lastds = (\i -> shape a !! i - 1) <$> ds
+    lastds = (\i -> getDim i (shape a) - 1) <$> ds
 
 -- | Select the tail elements along the supplied dimensions
 --
@@ -951,8 +967,8 @@ lasts ds a = indexes ds lastds a
 tails :: Dims -> Array a -> Array a
 tails ds a = slices ds os ls a
   where
-    os = List.replicate (S.rank ls) 1
-    ls = (\i -> shape a !! i - 1) <$> ds
+    os = List.replicate (S.rank ds) 1
+    ls = getLastPositions ds (shape a)
 
 -- | Select the init elements along the supplied dimensions
 --
@@ -963,8 +979,8 @@ tails ds a = slices ds os ls a
 inits :: Dims -> Array a -> Array a
 inits ds a = slices ds os ls a
   where
-    os = List.replicate (S.rank ls) 0
-    ls = (\i -> shape a !! i - 1) <$> ds
+    os = List.replicate (S.rank ds) 0
+    ls = getLastPositions ds (shape a)
 
 -- | Extracts dimensions to an outer layer.
 --
@@ -980,17 +996,6 @@ extracts ::
 extracts ds a = tabulate (getDims ds (shape a)) go
   where
     go s = indexes ds s a
-
--- | Extracts /except/ dimensions to an outer layer.
---
--- >>> let e = extractsExcept [1,2] a
--- >>> pretty $ shape <$> extracts [0] a
--- [[3,4],[3,4]]
-extractsExcept ::
-  Dims ->
-  Array a ->
-  Array (Array a)
-extractsExcept ds a = extracts (exceptDims (shape a) ds) a
 
 -- | Reduce along specified dimensions, using the supplied fold.
 --
@@ -1134,7 +1139,7 @@ zipsSafe ds f a b =
     (Left (NumHaskException "MisMatched zip"))
     (shape a /= (shape b :: [Int]))
 
--- | Modify using the supplied function along (dimension, position) tuples.
+-- | Modify using the supplied function along dimensions & positions.
 --
 -- >>> pretty $ modifies (fmap (100+)) [2] [0] a
 -- [[[100,1,2,3],
@@ -1221,15 +1226,15 @@ expandr f a b = tabulate (shape a <> shape b) (\i -> f (index a (List.drop r i))
 -- This generalises a tensor contraction by allowing the number of contracting diagonals to be other than 2.
 --
 -- >>> let b = array [2,3] [1..6] :: Array Int
--- >>> pretty $ contract sum [1,2] (expand (*) b (transpose b))
+-- >>> pretty $ contract [1,2] sum (expand (*) b (transpose b))
 -- [[14,32],
 --  [32,77]]
 contract ::
-  (Array a -> b) ->
   Dims ->
+  (Array a -> b) ->
   Array a ->
   Array b
-contract f xs a = f . diag <$> extracts (exceptDims xs (shape a)) a
+contract ds f a = f . diag <$> extracts (exceptDims ds (shape a)) a
 
 -- | A generalisation of a dot operation, which is a multiplicative expansion of two arrays and sum contraction along the middle two dimensions.
 --
@@ -1260,7 +1265,7 @@ dot ::
   Array a ->
   Array b ->
   Array d
-dot f g a b = contract f [r - 1, r] (expand g a b)
+dot f g a b = contract [r - 1, r] f (expand g a b)
   where
     r = rank a
 
@@ -1317,7 +1322,7 @@ find i a = xs
   where
     i' = rerank (rank a) i
     ws = windows (shape i') a
-    xs = fmap (== i') (extracts (arrayAs (range [rank a]) <> [rank a * 2 .. (rank ws - 1)]) ws)
+    xs = fmap (== i') (extracts (dimWindows (expandWindows (shape i') (shape a)) (shape a)) ws)
 
 -- | Find the ending positions of one array in another except where the array overlaps with another copy.
 --
@@ -1393,7 +1398,7 @@ cut ::
   [Int] ->
   Array a ->
   Array a
-cut s' a = bool (error "bad cut") (tabulate s' (index a'))  (and $ List.zipWith (<=) s' (shape a'))
+cut s' a = bool (error "bad cut") (tabulate s' (index a'))  (isSubset s' (shape a))
   where
     a' = rerank (S.rank s') a
 
@@ -1405,7 +1410,7 @@ cutSuffix ::
   [Int] ->
   Array a ->
   Array a
-cutSuffix s' a = bool (error "bad cut") (tabulate s' (index a' . List.zipWith (+) diffDim))  (and $ List.zipWith (<=) s' (shape a'))
+cutSuffix s' a = bool (error "bad cut") (tabulate s' (index a' . List.zipWith (+) diffDim)) (isSubset s' (shape a))
   where
     a' = rerank (S.rank s') a
     diffDim = List.zipWith (-) (shape a') s'
@@ -1612,26 +1617,7 @@ concats ::
   Int ->
   Array a ->
   Array a
-concats ds n a = backpermute concatDims unconcatDims a
-  where
-    concatDims s = insertDim n (S.size $ getDims ds s) (deleteDims ds s)
-    unconcatDims s = insertDims ds (shapen (getDims ds (shape a)) (getDim n s)) (deleteDim n s)
-
--- | Rotate an array along a dimension.
---
--- >>> pretty $ rotate 1 2 a
--- [[[8,9,10,11],
---   [0,1,2,3],
---   [4,5,6,7]],
---  [[20,21,22,23],
---   [12,13,14,15],
---   [16,17,18,19]]]
-rotate ::
-  Dim ->
-  Int ->
-  Array a ->
-  Array a
-rotate d r a = backpermute id (modifyDim d (\i -> (r + i) `mod` (shape a !! d))) a
+concats ds n a = backpermute (concatDims ds n) (unconcatDimsIndex ds n (shape a)) a
 
 -- | Reverses element order along specified dimensions.
 --
@@ -1647,6 +1633,22 @@ reverses ::
   Array a ->
   Array a
 reverses ds a = backpermute id (reverseIndex ds (shape a)) a
+
+-- | Rotate an array by/along dimensions & offsets.
+--
+-- >>> pretty $ rotates [1] [2] a
+-- [[[8,9,10,11],
+--   [0,1,2,3],
+--   [4,5,6,7]],
+--  [[20,21,22,23],
+--   [12,13,14,15],
+--   [16,17,18,19]]]
+rotates ::
+  Dims ->
+  [Int] ->
+  Array a ->
+  Array a
+rotates ds rs a = backpermute id (rotatesIndex ds rs (shape a)) a
 
 -- * sorting
 
@@ -1761,6 +1763,13 @@ instance
   where
   negate = fmap negate
 
+-- | Vector specialisation of 'range'
+--
+-- >>> iota 5
+-- UnsafeArray [5] [0,1,2,3,4]
+iota :: Int -> Array Int
+iota n = range [n]
+
 -- * row (first dimension) specializations
 
 -- | Add a new row
@@ -1835,13 +1844,6 @@ pattern xs :> x <- (unsnoc -> (xs, x))
 infix 5 :>
 
 {-# COMPLETE (:>) :: Array #-}
-
--- | Vector specialisation of 'range'
---
--- >>> iota 5
--- UnsafeArray [5] [0,1,2,3,4]
-iota :: Int -> Array Int
-iota n = range [n]
 
 -- * Math
 

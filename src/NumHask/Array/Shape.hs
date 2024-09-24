@@ -58,6 +58,7 @@ module NumHask.Array.Shape
     -- operators
     rank,
     Rank,
+    range,
     Range,
     rerank,
     Rerank,
@@ -71,6 +72,7 @@ module NumHask.Array.Shape
     AsSingleton,
     asScalar,
     AsScalar,
+    isSubset,
     IsSubset,
     exceptDims,
     ExceptDims,
@@ -135,6 +137,7 @@ module NumHask.Array.Shape
     -- * multiple dimension
     getDims,
     GetDims,
+    getLastPositions,
     GetLastPositions,
     modifyDims,
     insertDims,
@@ -149,17 +152,23 @@ module NumHask.Array.Shape
     DeleteDims,
     dropDims,
     DropDims,
+    concatDims,
+    ConcatDims,
 
     -- * value-only operations
+    unconcatDimsIndex,
     reverseIndex,
     rotate,
     rotateIndex,
+    rotatesIndex,
     isDiag,
 
     -- * windowed
     expandWindows,
     ExpandWindows,
     indexWindows,
+    dimWindows,
+    DimWindows,
   )
 where
 
@@ -172,7 +181,7 @@ import Prelude qualified
 import NumHask.Prelude as P hiding (Min, Max, Last, minimum)
 import Data.Coerce
 import Data.Data
-import GHC.Arr
+import GHC.Arr hiding (range)
 import GHC.Exts
 import GHC.TypeNats
 import GHC.TypeLits (TypeError, ErrorMessage(..))
@@ -361,6 +370,16 @@ type instance Eval (Rank xs) =
 
 -- | Enumerate a range of rank n
 --
+-- >>> range 0
+-- []
+--
+-- >>> range 3
+-- [0,1,2]
+range :: Int -> [Int]
+range n = [0..(n-1)]
+
+-- | Enumerate a range of rank n
+--
 -- FIXME: If the order of these tests are reversed, it fails.
 --
 -- >>> :k! Eval (Range 0)
@@ -518,6 +537,11 @@ data AsScalar :: [Nat] -> Exp [Nat]
 type instance Eval (AsScalar xs) =
   If (xs == '[1]) '[] xs
 
+lte :: [Int] -> [Int] -> Bool
+lte xs ys =
+  and (zipWith (<=) xs ys) &&
+  (rank xs) == (rank ys)
+
 data LTE :: [Nat] -> [Nat] -> Exp Bool
 
 type instance Eval (LTE xs ys) =
@@ -527,21 +551,34 @@ type instance Eval (LTE xs ys) =
 
 -- | Check if a shape is a subset (<=) another shape after reranking.
 --
+-- >>> isSubset [2,3,4] [2,3,4]
+-- True
+--
+-- >>> isSubset [1,2] [2,3,4]
+-- True
+--
+-- >>> isSubset [2,1] [1]
+-- False
+isSubset :: [Int] -> [Int] -> Bool
+isSubset xs ys = lte (rerank (rank ys) xs) ys
+
+-- | Check if a shape is a subset (<=) another shape after reranking.
+--
 -- >>> :k! Eval (IsSubset [2,3,4] [2,3,4])
 -- ...
 -- = True
 --
 -- >>> :k! Eval (IsSubset [1,2] [2,3,4])
 -- ...
--- = False
+-- = True
 --
 -- >>> :k! Eval (IsSubset [2,1] '[1])
 -- ...
--- = True
+-- = False
 data IsSubset :: [Nat] -> [Nat] -> Exp Bool
 
 type instance Eval (IsSubset xs ys) =
-  Eval (LTE ys =<< (Rerank (Eval (Rank ys)) xs))
+  Eval (LTE (Eval (Rerank (Eval (Rank ys)) xs)) ys)
 
 -- | Compute dimensions for a shape other than the supplied dimensions.
 --
@@ -1155,6 +1192,16 @@ type instance Eval (GetDims xs ds) =
 
 -- | Get the index of the last position in the selected dimensions of a shape. Errors on a zero-dimension.
 --
+-- >>> getLastPositions [2,0] [2,3,4]
+-- [3,1]
+-- >>> getLastPositions [0] [0]
+-- [-1]
+getLastPositions :: [Int] -> [Int] -> [Int]
+getLastPositions ds s =
+    fmap (\x -> x - 1) (getDims ds s)
+
+-- | Get the index of the last position in the selected dimensions of a shape. Errors on a zero-dimension.
+--
 -- >>> :k! Eval (GetLastPositions [2,0] [2,3,4])
 -- ...
 -- = [3, 1]
@@ -1331,6 +1378,30 @@ data DropDims :: [Nat] -> [Nat] -> [Nat] -> Exp [Nat]
 type instance Eval (DropDims ds xs s) =
   Eval (SetDims ds (Eval (ZipWith (Fcf.-) (Eval (GetDims ds s)) xs)) s)
 
+-- | Concatenate and replace dimensions, creating a new dimension at the supplied postion.
+--
+-- >>> concatDims [0,1] 1 [2,3,4]
+-- [4,6]
+concatDims :: [Int] -> Int -> [Int] -> [Int]
+concatDims ds n s = insertDim n (size $ getDims ds s) (deleteDims ds s)
+
+-- | Drop a number of elements of a shape along the supplied dimensions.
+--
+-- >>> :k! Eval (ConcatDims [0,1] 1 [2,3,4])
+-- ...
+-- = [4, 6]
+data ConcatDims :: [Nat] -> Nat -> [Nat] -> Exp [Nat]
+
+type instance Eval (ConcatDims ds n s) =
+  Eval (InsertDim n (Eval (Size (Eval (GetDims ds s)))) (Eval (DeleteDims ds s)))
+
+-- | Unconcatenate and reinsert dimensions for an index.
+--
+-- >>> unconcatDimsIndex [0,1] 1 [4,6] [2,3]
+-- [0,3,2]
+unconcatDimsIndex :: [Int] -> Int -> [Int] -> [Int] -> [Int]
+unconcatDimsIndex ds n s i = insertDims ds (shapen (getDims ds s) (getDim n i)) (deleteDim n i)
+
 -- | reverse an index along specific dimensions.
 --
 -- >>> reverseIndex [0] [2,3,4] [0,1,2]
@@ -1349,12 +1420,19 @@ rotate r xs = drop r' xs <> take r' xs
   where
     r' = r `mod` List.length xs
 
+-- | rotate an index along a specific dimension.
+--
+-- >>> rotateIndex 0 1 [2,3,4] [0,1,2]
+-- [1,1,2]
+rotateIndex :: Int -> Int -> [Int] -> [Int] -> [Int]
+rotateIndex d r s xs = modifyDim d (\x -> ((x + r) `mod`) (getDim d s)) xs
+
 -- | rotate an index along specific dimensions.
 --
--- >>> rotateIndex [0] [1] [2,3,4] [0,1,2]
+-- >>> rotatesIndex [0] [1] [2,3,4] [0,1,2]
 -- [1,1,2]
-rotateIndex :: [Int] -> [Int] -> [Int] -> [Int] -> [Int]
-rotateIndex ds rs s xs = foldr (\(d, r) acc -> modifyDim d (\x -> ((x + r) `mod`) (s List.!! d)) acc) xs (zip ds rs)
+rotatesIndex :: [Int] -> [Int] -> [Int] -> [Int] -> [Int]
+rotatesIndex ds rs s xs = foldr (\(d, r) acc -> rotateIndex d r s acc) xs (zip ds rs)
 
 -- | Test whether an index is a diagonal one.
 --
@@ -1391,3 +1469,20 @@ type instance Eval (ExpandWindows ws ds) =
 -- [2,2,1]
 indexWindows :: Int -> [Int] -> [Int]
 indexWindows r ds = List.zipWith (+) (List.take r ds) (List.take r (List.drop r ds)) <> List.drop (r + r) ds
+
+-- | Dimensions of a windowed array.
+--
+-- >>> dimWindows [2,2] [2,3,4]
+-- [0,1,2]
+dimWindows :: [Int] -> [Int] -> [Int]
+dimWindows ws s = range (rank s) <> [rank s * 2 .. (rank ws - 1)]
+
+-- | Dimensions of a windowed array.
+--
+-- >>> :k! Eval (DimWindows [2,2] [4,3,2])
+-- ...
+-- = [0, 1, 2]
+data DimWindows :: [Nat] -> [Nat] -> Exp [Nat]
+
+type instance Eval (DimWindows ws s) =
+  Eval ((Eval (Range =<< (Rank s))) ++ (Eval (EnumFromTo (Eval ((Fcf.*) 2 (Eval (Rank s)))) (Eval (Rank ws) - 1))))
