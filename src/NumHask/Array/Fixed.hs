@@ -151,6 +151,7 @@ module NumHask.Array.Fixed
     elongate,
     transpose,
     inflate,
+    intercalate,
     concats,
     reverses,
     rotate,
@@ -201,7 +202,7 @@ import GHC.TypeNats
 import NumHask.Array.Dynamic qualified as D
 import NumHask.Array.Shape hiding (concatenate, rank, size, asScalar, asSingleton, squeeze, rotate, reorder, rerank, range)
 import NumHask.Array.Shape qualified as S
-import NumHask.Prelude as P hiding (Min, take, drop, diff, zipWith, empty, sequence, toList, length, repeat, cycle, find)
+import NumHask.Prelude as P hiding (Min, take, drop, diff, zipWith, empty, sequence, length, repeat, cycle, find)
 import Prelude qualified
 import Prettyprinter hiding (dot, fill)
 import Data.List qualified as List
@@ -2111,6 +2112,36 @@ inflate ::
   Array s a ->
   Array s' a
 inflate SNat _ a = unsafeBackpermute (S.deleteDim (valueOf @d)) a
+
+-- | Intercalate an array along dimensions.
+--
+-- >>> pretty $ intercalate @2 (konst @[2,3] 0) a
+-- [[[0,0,1,0,2,0,3],
+--   [4,0,5,0,6,0,7],
+--   [8,0,9,0,10,0,11]],
+--  [[12,0,13,0,14,0,15],
+--   [16,0,17,0,18,0,19],
+--   [20,0,21,0,22,0,23]]]
+intercalate::
+  forall d ds n n' s si st a.
+  ( KnownNats s
+  , KnownNats si
+  , KnownNats st
+  , KnownNats ds
+  , KnownNat n
+  , KnownNat n'
+  , ds ~ '[d]
+  , si ~ Eval (DeleteDim d s)
+  , n ~ Eval (GetDim d s)
+  , n' ~ n + n - 1
+  , st ~ Eval (InsertDim d n' si)
+  ) =>
+  Dim d -> Array s a -> Array si a -> Array st a
+intercalate SNat a i =
+  joins (SNats @ds)
+  (vector @n'
+  (List.intersperse i
+  (toList (extracts (SNats @ds) a :: Array '[n] (Array si a)))))
 
 -- | Concatenate dimensions, creating a new dimension at the supplied postion.
 --

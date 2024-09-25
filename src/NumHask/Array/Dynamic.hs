@@ -1583,27 +1583,27 @@ inflate d n a = backpermute (insertDim d n) (deleteDim d) a
 
 -- | Intercalate an array along dimensions.
 --
--- >>> pretty $ intercalate [2] (konst [2,3] 0) a
+-- >>> pretty $ intercalate 2 (konst [2,3] 0) a
 -- [[[0,0,1,0,2,0,3],
 --   [4,0,5,0,6,0,7],
 --   [8,0,9,0,10,0,11]],
 --  [[12,0,13,0,14,0,15],
 --   [16,0,17,0,18,0,19],
 --   [20,0,21,0,22,0,23]]]
-intercalate:: Dims -> Array a -> Array a -> Array a
-intercalate ds i a = joins ds $ asArray (List.intersperse i (arrayAs (extracts ds a)))
+intercalate:: Dim -> Array a -> Array a -> Array a
+intercalate d i a = joins [d] $ asArray (List.intersperse i (arrayAs (extracts [d] a)))
 
 -- | Intersperse an element along dimensions.
 --
--- >>> pretty $ intersperse [2] 0 a
+-- >>> pretty $ intersperse 2 0 a
 -- [[[0,0,1,0,2,0,3],
 --   [4,0,5,0,6,0,7],
 --   [8,0,9,0,10,0,11]],
 --  [[12,0,13,0,14,0,15],
 --   [16,0,17,0,18,0,19],
 --   [20,0,21,0,22,0,23]]]
-intersperse :: Dims -> a -> Array a -> Array a
-intersperse ds i a = intercalate ds (konst (deleteDims ds (shape a)) i) a
+intersperse :: Dim -> a -> Array a -> Array a
+intersperse d i a = intercalate d (konst (deleteDim d (shape a)) i) a
 
 -- | Concatenate and replace dimensions, creating a new dimension at the supplied postion.
 --
