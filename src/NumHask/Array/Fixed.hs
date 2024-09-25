@@ -131,6 +131,7 @@ module NumHask.Array.Fixed
 
     -- ** Search
     find,
+    findNoOverlap,
     isPrefixOf,
     isSuffixOf,
     isInfixOf,
@@ -152,6 +153,7 @@ module NumHask.Array.Fixed
     transpose,
     inflate,
     intercalate,
+    intersperse,
     concats,
     reverses,
     rotate,
@@ -1769,6 +1771,42 @@ find i a = xs
     ws = windows (SNats @i') a
     xs = fmap (== i') (extracts (SNats @re) ws)
 
+-- | Find the ending positions of one array in another except where the array overlaps with another copy.
+--
+-- >>> a = konst @[5,5] @Int 1
+-- >>> i = konst @[2,2] @Int 1
+-- >>> pretty $ findNoOverlap i a
+-- [[True,False,True,False],
+--  [False,False,False,False],
+--  [True,False,True,False],
+--  [False,False,False,False]]
+findNoOverlap ::
+  forall s' si s a r i' re ws.
+  (Eq a,
+   KnownNats si,
+   KnownNats s,
+   KnownNats s',
+   KnownNats re,
+   KnownNats i',
+   KnownNat r,
+   KnownNats ws,
+   ws ~ Eval (ExpandWindows i' s),
+   r ~ Eval (Rank s),
+   i' ~ Eval (Rerank r si),
+   re ~ Eval (DimWindows ws s),
+   i' ~ Eval (DeleteDims re ws),
+   s' ~ Eval (GetDims re ws)
+  ) =>
+  Array si a -> Array s a -> Array s' Bool
+findNoOverlap i a = r
+  where
+    f = find i a
+
+    cl :: [Int] -> [[Int]]
+    cl sh = List.filter (P.not . any (> 0) . List.init) $ List.filter (P.not . all (>= 0)) $ D.arrayAs $ D.tabulate ((\x -> 2 * x - 1) <$> sh) (\s -> List.zipWith (\x x0 -> x - x0 + 1) s sh)
+    go r' s = index f (UnsafeFins s) && all (P.not . index r' . UnsafeFins) (List.filter (\x -> isFins x (shape f)) $ fmap (List.zipWith (+) s) (cl (shape i)))
+    r = unsafeTabulate (go r)
+
 -- | Check if the first array is a prefix of the second
 --
 -- FIXME: different to D.isPrefixOf result
@@ -2115,7 +2153,7 @@ inflate SNat _ a = unsafeBackpermute (S.deleteDim (valueOf @d)) a
 
 -- | Intercalate an array along dimensions.
 --
--- >>> pretty $ intercalate @2 (konst @[2,3] 0) a
+-- >>> pretty $ intercalate (SNat @2) (konst @[2,3] 0) a
 -- [[[0,0,1,0,2,0,3],
 --   [4,0,5,0,6,0,7],
 --   [8,0,9,0,10,0,11]],
@@ -2133,15 +2171,41 @@ intercalate::
   , ds ~ '[d]
   , si ~ Eval (DeleteDim d s)
   , n ~ Eval (GetDim d s)
-  , n' ~ n + n - 1
+  , n' ~ Eval ((Fcf.-) (Eval ((Fcf.+) n n)) 1)
   , st ~ Eval (InsertDim d n' si)
   ) =>
-  Dim d -> Array s a -> Array si a -> Array st a
-intercalate SNat a i =
+  Dim d -> Array si a -> Array s a -> Array st a
+intercalate SNat i a =
   joins (SNats @ds)
   (vector @n'
   (List.intersperse i
-  (toList (extracts (SNats @ds) a :: Array '[n] (Array si a)))))
+  (toList (extracts (SNats @ds) a))))
+
+-- | Intersperse an element along dimensions.
+--
+-- >>> pretty $ intersperse (SNat @2) 0 a
+-- [[[0,0,1,0,2,0,3],
+--   [4,0,5,0,6,0,7],
+--   [8,0,9,0,10,0,11]],
+--  [[12,0,13,0,14,0,15],
+--   [16,0,17,0,18,0,19],
+--   [20,0,21,0,22,0,23]]]
+intersperse ::
+  forall d ds n n' s si st a.
+  ( KnownNats s
+  , KnownNats si
+  , KnownNats st
+  , KnownNats ds
+  , KnownNat n
+  , KnownNat n'
+  , ds ~ '[d]
+  , si ~ Eval (DeleteDim d s)
+  , n ~ Eval (GetDim d s)
+  , n' ~ n + n - 1
+  , st ~ Eval (InsertDim d n' si)
+  ) =>
+  Dim d -> a -> Array s a -> Array st a
+intersperse (SNat :: SNat d) x a = intercalate (SNat @d) (konst @si x) a
 
 -- | Concatenate dimensions, creating a new dimension at the supplied postion.
 --
