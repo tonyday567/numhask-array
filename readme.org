@@ -4,6 +4,8 @@
 
 [[https://hackage.haskell.org/package/numhask-array][file:https://img.shields.io/hackage/v/numhask-array.svg]] [[https://github.com/tonyday567/numhask-array/actions?query=workflow%3Ahaskell-ci][file:https://github.com/tonyday567/numhask-array/workflows/haskell-ci/badge.svg]]
 
+Deprecated in favour of harpie
+
 * Usage
 
 This package provides an interface into the numhask API, and both type and value level shape manipulation routines.
@@ -1052,7 +1054,7 @@ vector [2,3,4] :: (KnownNat n, Num a) => Array '[n] a
 withKnownNat :: SNat n -> (KnownNat n => r) -> r
 #+end_example
 
-*** Next SomeVector
+*** SomeVector
 
 Simple example:
 
@@ -1443,14 +1445,13 @@ reifyNat n k = withSomeSNat n $ \(mbSn :: Maybe (SNat n)) ->
                  Nothing -> throw Underflow
 #+end_src
 
-*** ToDo github SomeNat
 *** plugin
 
 #+begin_src haskell-ng :results output
 import GHC.TypeLits.KnownNat.Solver
 #+end_src
 
-**** ToDo Does the plugin work with ghci?
+**** Does the plugin work with ghci?
 
 #+begin_src haskell-ng :results output
 :{
@@ -1487,7 +1488,6 @@ https://discourse.haskell.org/t/how-to-create-arbitrary-instance-for-dependent-t
 ** singletons
 
 https://github.com/goldfirere/singletons/blob/master/README.md
-
 
 ** dependent type examples
 
